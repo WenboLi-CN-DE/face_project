@@ -7,7 +7,7 @@ services:
       context: ../..
       dockerfile: Dockerfile
     ports:
-      - "0.0.0.0:8070:8070"
+      - "8070:8070"
     command: uvicorn vrlFace.face_app:app --reload --host 0.0.0.0 --port 8070
     volumes:
       - ../..:/app
