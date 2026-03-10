@@ -1,0 +1,169 @@
+"""
+活体检测配置模块
+
+纯 MediaPipe 方案配置
+"""
+
+from dataclasses import dataclass
+from typing import Tuple
+
+
+@dataclass
+class LivenessConfig:
+    """活体检测配置类"""
+
+    threshold: float = 0.5
+
+    ear_threshold: float = 0.20  # 降低：更适合大多数人，0.18-0.22 为宜
+    mar_threshold: float = 0.60  # 实测：闭嘴<0.33，张嘴=0.93，阈值设为0.60
+    yaw_threshold: float = 18.0  # 提高：减少轻微移动误判
+    pitch_threshold: float = 18.0  # 提高：减少轻微移动误判
+    min_blinks: int = 1
+
+    window_size: int = 30
+    smooth_window: int = 10
+
+    max_faces: int = 1
+    skip_frames: int = 0
+    max_width: int = 640
+    target_fps: float = 25.0
+
+    challenge_mode: bool = False
+    challenge_timeout: int = 10
+    required_actions: Tuple[str, ...] = ("blink", "mouth_open", "head_turn")
+
+    action_confirm_frames: int = 2
+
+    def validate(self) -> bool:
+        errors = []
+        if not (0.0 <= self.threshold <= 1.0):
+            errors.append(f"阈值必须在 [0, 1] 范围内：{self.threshold}")
+        if self.window_size <= 0:
+            errors.append(f"时间窗口必须为正数：{self.window_size}")
+        if self.skip_frames < 0:
+            errors.append(f"跳帧数必须非负：{self.skip_frames}")
+        if errors:
+            for error in errors:
+                print(f"配置错误：{error}")
+            return False
+        return True
+
+    def display(self):
+        print("=" * 60)
+        print("活体检测配置")
+        print("=" * 60)
+        print(f"活体阈值：{self.threshold}")
+        print("-" * 60)
+        print(f"EAR 阈值：{self.ear_threshold}")
+        print(f"MAR 阈值：{self.mar_threshold}")
+        print(f"Yaw 阈值：{self.yaw_threshold}")
+        print(f"Pitch 阈值：{self.pitch_threshold}")
+        print("-" * 60)
+        print(f"时间窗口：{self.window_size} 帧")
+        print(f"平滑窗口：{self.smooth_window} 帧")
+        print("-" * 60)
+        print(f"跳帧设置：每 {self.skip_frames + 1} 帧检测 1 次")
+        print(f"最大人脸：{self.max_faces}")
+        print(f"最大宽度：{self.max_width}")
+        print("-" * 60)
+        print(f"挑战模式：{self.challenge_mode}")
+        if self.challenge_mode:
+            print(f"挑战超时：{self.challenge_timeout} 秒")
+            print(f"要求动作：{self.required_actions}")
+        print("=" * 60)
+
+    @classmethod
+    def cpu_fast_config(cls) -> "LivenessConfig":
+        return cls(
+            skip_frames=0,
+            max_width=640,
+            target_fps=25.0,
+            window_size=15,
+            smooth_window=5,
+            threshold=0.45,
+            yaw_threshold=18.0,
+            pitch_threshold=18.0,
+            ear_threshold=0.20,
+            mar_threshold=0.60,
+            action_confirm_frames=3,
+        )
+
+    @classmethod
+    def cpu_accurate_config(cls) -> "LivenessConfig":
+        return cls(
+            skip_frames=1,
+            window_size=60,
+            threshold=0.55,
+        )
+
+    @classmethod
+    def video_anti_spoofing_config(cls) -> "LivenessConfig":
+        return cls(
+            window_size=30,
+            min_blinks=2,
+            threshold=0.50,
+            skip_frames=0,
+            max_width=640,
+            target_fps=0.0,
+            yaw_threshold=18.0,
+            pitch_threshold=18.0,
+            ear_threshold=0.20,
+            mar_threshold=0.60,
+            action_confirm_frames=3,
+        )
+
+    @classmethod
+    def realtime_config(cls) -> "LivenessConfig":
+        return cls(
+            skip_frames=0,
+            max_width=480,
+            target_fps=0.0,
+            window_size=20,
+            smooth_window=5,
+            threshold=0.35,   # 降低：事件提升分已能可靠拉高得分，降低误拒率
+            ear_threshold=0.20,
+            mar_threshold=0.55,  # 修正：避免闭嘴(MAR<0.33)被误判为张嘴
+            yaw_threshold=14.0,
+            pitch_threshold=14.0,
+            action_confirm_frames=1,
+        )
+
+    @classmethod
+    def video_fast_config(cls) -> "LivenessConfig":
+        return cls(
+            skip_frames=0,
+            max_width=640,
+            target_fps=0.0,
+            window_size=20,
+            threshold=0.35,   # 降低：事件提升分已能可靠拉高得分，降低误拒率
+            yaw_threshold=14.0,
+            pitch_threshold=14.0,
+            ear_threshold=0.20,
+            mar_threshold=0.55,
+            action_confirm_frames=1,
+        )
+
+    @classmethod
+    def fast_detector_config(cls) -> dict:
+        return {
+            "ear_threshold": 0.20,
+            "eye_open_threshold": 0.20,
+            "eye_close_threshold": 0.20,  # 修正：与 ear_threshold 一致，避免双阈值不对称
+            "mar_threshold": 0.60,
+            "yaw_threshold": 18.0,
+            "pitch_threshold": 18.0,
+            "window_size": 15,
+            "action_confirm_frames": 3,
+        }
+
+
+config = LivenessConfig.cpu_fast_config()
+
+
+if __name__ == "__main__":
+    print("默认配置:")
+    config.display()
+    print("\nCPU 快速配置:")
+    LivenessConfig.cpu_fast_config().display()
+    print("\n视频防伪配置:")
+    LivenessConfig.video_anti_spoofing_config().display()

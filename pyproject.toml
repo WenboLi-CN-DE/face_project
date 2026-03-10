@@ -1,0 +1,79 @@
+[project]
+name = "face-verification"
+version = "3.0.0"
+description = "人脸识别 & 活体检测系统 - 基于 InsightFace + MediaPipe"
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["face-recognition", "face-verification", "insightface", "biometrics"]
+
+dependencies = [
+    "insightface>=0.7.3",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "onnxruntime>=1.16.0",
+    "pillow>=10.0.0",
+    "mediapipe>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+]
+gpu = [
+    "onnxruntime-gpu>=1.16.0",
+]
+api = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "python-multipart>=0.0.6",
+]
+all = [
+    "face-verification[dev,gpu,api]",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/face-verification"
+Documentation = "https://github.com/yourusername/face-verification/wiki"
+Repository = "https://github.com/yourusername/face-verification.git"
+Issues = "https://github.com/yourusername/face-verification/issues"
+
+[project.scripts]
+face-verify = "vrlFace.face.cli:main"
+face-liveness = "vrlFace.liveness.cli:main"
+face-recorder = "vrlFace.liveness.recorder:main"
+face-server = "vrlFace.face_app:app"
+liveness-server = "vrlFace.liveness_app:app"
+
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*.py"]
