@@ -1,0 +1,29 @@
+# 人脸识别服务 — 单独部署（测试环境）
+# 用法：docker compose -f docker-compose.face.yaml up -d
+#   或：bash up.sh face
+services:
+  vrl-face:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "8070:8070"
+    command: uvicorn vrlFace.face_app:app --host 0.0.0.0 --port 8070 --workers 1 --log-level debug
+    restart: unless-stopped
+    volumes:
+      - ../../models:/app/models
+      - ../../data:/app/data
+    env_file:
+      - .env
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: "4G"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+

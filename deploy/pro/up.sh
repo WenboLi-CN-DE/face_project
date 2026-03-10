@@ -1,10 +1,14 @@
 #!/bin/bash
-set -eux
+# ── 生产部署脚本 ─────────────────────────────────────────────
+#
+# 用法：
+#   bash up.sh              # 同时启动两个服务
+#   bash up.sh face         # 只启动人脸识别服务 (8070)
+#   bash up.sh liveness     # 只启动活体检测服务 (8071)
+#
+set -eu
 
-# ── 生产部署脚本 ──────────────────────────────────────────────
-# 用法：cd deploy/pro && bash up.sh
-
-SERVER_PORT=8070
+TARGET="${1:-all}"
 
 check_env() {
     if [ ! -f ".env" ]; then
@@ -34,23 +38,46 @@ wait_healthy() {
         sleep 3
     done
     echo "❌ ${name} 启动超时，查看日志："
-    echo "   docker compose logs ${name} --tail=50"
+    echo "   docker compose -f docker-compose.${name#vrl-}.yaml logs --tail=50"
     return 1
 }
 
 check_env
 check_models
-
-# 创建视频上传目录（如果不存在）
 mkdir -p /data/videos
 
-docker compose build
-docker compose up -d
-docker compose ps
-
-wait_healthy vrl-face     8070
-wait_healthy vrl-liveness 8071
-
-echo ""
-echo "📖 人脸识别文档：http://localhost:8070/docs"
-echo "📖 活体检测文档：http://localhost:8071/docs"
+case "$TARGET" in
+  face)
+    echo ">>> 启动人脸识别服务 (8070)"
+    docker compose -f docker-compose.face.yaml build
+    docker compose -f docker-compose.face.yaml up -d
+    docker compose -f docker-compose.face.yaml ps
+    wait_healthy vrl-face 8070
+    echo "📖 人脸识别文档：http://localhost:8070/docs"
+    ;;
+  liveness)
+    echo ">>> 启动活体检测服务 (8071)"
+    docker compose -f docker-compose.liveness.yaml build
+    docker compose -f docker-compose.liveness.yaml up -d
+    docker compose -f docker-compose.liveness.yaml ps
+    wait_healthy vrl-liveness 8071
+    echo "📖 活体检测文档：http://localhost:8071/docs"
+    ;;
+  all)
+    echo ">>> 启动全部服务 (8070 + 8071)"
+    docker compose build
+    docker compose up -d
+    docker compose ps
+    wait_healthy vrl-face     8070
+    wait_healthy vrl-liveness 8071
+    echo "📖 人脸识别文档：http://localhost:8070/docs"
+    echo "📖 活体检测文档：http://localhost:8071/docs"
+    ;;
+  *)
+    echo "用法：bash up.sh [face|liveness|all]"
+    echo "  face     — 只启动人脸识别服务 (8070)"
+    echo "  liveness — 只启动活体检测服务 (8071)"
+    echo "  all      — 启动全部服务（默认）"
+    exit 1
+    ;;
+esac
