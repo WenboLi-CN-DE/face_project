@@ -140,25 +140,36 @@ cp .env.example .env
 nano .env
 ```
 
-`.env` 完整说明：
+`.env` 各字段说明：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FACE_MODEL_NAME` | `buffalo_l` | InsightFace 模型名称 |
+| `FACE_DET_SIZE` | `640,640` | 人脸检测分辨率 |
+| `FACE_GPU_ID` | `-1` | GPU ID，`-1` 表示使用 CPU |
+| `FACE_THRESHOLD` | `0.55` | 人脸相似度阈值 |
+| `FACE_IMAGES_BASE` | `/app/data/dataset` | 人脸库路径（容器内） |
+| `APP_PORT` | `8070` | 参考用，实际端口由命令行指定 |
+| `APP_WORKERS` | `2` | uvicorn Worker 进程数 |
+| `LOG_LEVEL` | `INFO` | 日志级别：`DEBUG` / `INFO` / `WARNING` |
+| `LIVENESS_THRESHOLD` | `0.5` | 全局活体阈值（可在请求中覆盖） |
+| `ACTION_THRESHOLD` | `0.85` | 动作置信度阈值（可在请求中覆盖） |
+| `VIDEO_BASE_DIR` | `/app/videos` | 视频目录（容器内挂载路径） |
+
+完整 `.env` 示例：
 
 ```dotenv
-# ── 人脸识别 ──────────────────────────────
-FACE_MODEL_NAME=buffalo_l       # 模型名称
-FACE_DET_SIZE=640,640           # 检测分辨率
-FACE_GPU_ID=-1                  # -1=CPU，0=第一块GPU
-FACE_THRESHOLD=0.55             # 相似度阈值
-FACE_IMAGES_BASE=/app/data/dataset  # 人脸库路径（容器内）
-
-# ── 服务参数 ──────────────────────────────
-APP_PORT=8070                   # 人脸服务端口（仅供参考，实际由命令行指定）
-APP_WORKERS=2                   # Worker 进程数
-LOG_LEVEL=INFO                  # 日志级别：DEBUG / INFO / WARNING
-
-# ── 活体检测 ──────────────────────────────
-LIVENESS_THRESHOLD=0.5          # 活体阈值（可在请求中覆盖）
-ACTION_THRESHOLD=0.85           # 动作置信度阈值（可在请求中覆盖）
-VIDEO_BASE_DIR=/app/videos      # 视频目录（容器内挂载路径）
+FACE_MODEL_NAME=buffalo_l
+FACE_DET_SIZE=640,640
+FACE_GPU_ID=-1
+FACE_THRESHOLD=0.55
+FACE_IMAGES_BASE=/app/data/dataset
+APP_PORT=8070
+APP_WORKERS=2
+LOG_LEVEL=INFO
+LIVENESS_THRESHOLD=0.5
+ACTION_THRESHOLD=0.85
+VIDEO_BASE_DIR=/app/videos
 ```
 
 ### 3.4 构建并启动
@@ -626,12 +637,125 @@ docker compose restart vrl-liveness
 
 # 停止所有服务
 docker compose down
-
-# 更新代码后重新部署
-git pull
-docker compose build
-docker compose up -d
 ```
+
+#### 拉取最新代码并重新部署（Docker）
+
+> **执行 `git pull` 前先确认是否为 Git 仓库：**
+>
+> ```bash
+> cd /opt/face_cls
+> git status
+> ```
+>
+> 如果提示 `fatal: not a git repository`，说明代码是通过 scp/tar 上传的，没有 `.git` 目录。
+> 按下方选择一种方式解决后，再继续后续步骤。
+
+---
+
+##### 情况 A：非 Git 仓库 — 一次性补救（推荐）
+
+在服务器上初始化 Git，绑定远程仓库，之后就可以正常 `git pull`：
+
+```bash
+cd /opt/face_cls
+
+# 1. 初始化本地仓库
+git init
+
+# 2. 绑定远程仓库
+git remote add origin <your-repo-url>
+
+# 3. 拉取远程代码并覆盖本地
+git fetch origin main
+git reset --hard origin/main
+
+# 4. 验证
+git log --oneline -5
+git remote -v
+```
+
+> 之后每次更新只需执行 `git pull origin main` 即可。
+
+---
+
+##### 情况 B：非 Git 仓库 — 继续用 scp 打包上传
+
+如果没有或不方便配置 Git，每次在**本地**打包上传：
+
+```bash
+# 本地执行（Windows PowerShell）
+cd E:\unified_pyprj
+tar -czf face_cls.tar.gz `
+    --exclude='face_cls/_bmad' `
+    --exclude='face_cls/_bmad-output' `
+    --exclude='face_cls/__pycache__' `
+    --exclude='face_cls/.git' `
+    --exclude='face_cls/*.pyc' `
+    face_cls
+
+scp face_cls.tar.gz root@<server-ip>:/opt/
+
+# 服务器上覆盖解压（不删除 .env 和 models）
+cd /opt
+tar -xzf face_cls.tar.gz --overwrite
+```
+
+> **注意**：`--overwrite` 只覆盖同名文件，`.env` 和 `models/` 目录不在压缩包内（已被 exclude），不会被覆盖。
+
+---
+
+**更新全部服务：**
+
+```bash
+cd /opt/face_cls
+
+# 1. 拉取最新代码（已是 Git 仓库时）
+git pull origin main          # 若分支不是 main，替换为实际分支名
+
+# 2. 重新构建并重启（两个服务都更新）
+cd deploy/pro
+docker compose build --no-cache   # --no-cache 强制完整重建，确保依赖也更新
+docker compose up -d
+
+# 3. 确认两个服务正常
+docker compose ps
+curl -s http://localhost:8070/healthz
+curl -s http://localhost:8071/healthz
+```
+
+**只更新人脸识别服务（不影响活体检测）：**
+
+```bash
+cd /opt/face_cls
+git pull origin main
+
+cd deploy/pro
+docker compose -f docker-compose.face.yaml build --no-cache
+docker compose -f docker-compose.face.yaml up -d
+
+# 验证
+curl -s http://localhost:8070/healthz
+```
+
+**只更新活体检测服务（不影响人脸识别）：**
+
+```bash
+cd /opt/face_cls
+git pull origin main
+
+cd deploy/pro
+docker compose -f docker-compose.liveness.yaml build --no-cache
+docker compose -f docker-compose.liveness.yaml up -d
+
+# 验证
+curl -s http://localhost:8071/healthz
+```
+
+> **说明**：
+> - `git pull` 只拉取代码，不会中断正在运行的容器。
+> - `docker compose build` 重建镜像时，旧容器继续服务，`up -d` 完成后才切换，**服务中断时间极短**。
+> - 如果只改了 Python 代码（未改 `requirements.txt`），可以去掉 `--no-cache` 加快构建速度。
 
 ### systemd 方式（裸机）
 
@@ -651,11 +775,52 @@ sudo systemctl restart vrl-liveness
 # 停止
 sudo systemctl stop vrl-face
 sudo systemctl stop vrl-liveness
-
-# 更新后重启
-cd /opt/face_cls && git pull
-sudo systemctl restart vrl-face vrl-liveness
 ```
+
+#### 拉取最新代码并重新部署（裸机）
+
+> 同样先确认是否为 Git 仓库（`git status`），不是则参考上方 **情况 A / B** 处理。
+
+**更新全部服务：**
+
+```bash
+cd /opt/face_cls
+
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 如果 requirements.txt 有变化，重新安装依赖
+sudo -u deploy bash -c "
+  source /opt/face_cls/venv/bin/activate
+  pip install -r /opt/face_cls/requirements.txt
+"
+
+# 3. 重启两个服务
+sudo systemctl restart vrl-face vrl-liveness
+
+# 4. 验证
+sudo systemctl status vrl-face
+sudo systemctl status vrl-liveness
+curl -s http://localhost:8070/healthz
+curl -s http://localhost:8071/healthz
+```
+
+**只更新某一个服务：**
+
+```bash
+cd /opt/face_cls
+git pull origin main
+
+# 只重启人脸识别
+sudo systemctl restart vrl-face
+curl -s http://localhost:8070/healthz
+
+# 只重启活体检测
+sudo systemctl restart vrl-liveness
+curl -s http://localhost:8071/healthz
+```
+
+> **说明**：裸机方式 `git pull` 后代码立即生效于磁盘，但进程需要 `systemctl restart` 才会加载新代码。`restart` 期间服务会短暂中断（通常 < 5 秒）。
 
 ### 防火墙
 
@@ -703,7 +868,7 @@ sudo journalctl -u vrl-liveness -n 50 --no-pager
 编辑 `deploy/pro/.env`：
 
 ```dotenv
-APP_WORKERS=1     # 从 2 减为 1（两个服务共节省约 2~4 GB 内存）
+APP_WORKERS=1
 ```
 
 重启服务：
