@@ -57,17 +57,33 @@ BASE_COLUMNS = [
 # 关键关键点索引 (MediaPipe 478-point model)
 KEY_LANDMARK_INDICES = {
     # Left eye (EAR)
-    "leye_0": 133, "leye_1": 160, "leye_2": 158,
-    "leye_3": 33,  "leye_4": 153, "leye_5": 144,
+    "leye_0": 133,
+    "leye_1": 160,
+    "leye_2": 158,
+    "leye_3": 33,
+    "leye_4": 153,
+    "leye_5": 144,
     # Right eye (EAR)
-    "reye_0": 362, "reye_1": 385, "reye_2": 387,
-    "reye_3": 263, "reye_4": 373, "reye_5": 380,
+    "reye_0": 362,
+    "reye_1": 385,
+    "reye_2": 387,
+    "reye_3": 263,
+    "reye_4": 373,
+    "reye_5": 380,
     # Lips (MAR)
-    "lip_0": 61,  "lip_1": 291, "lip_2": 39,
-    "lip_3": 269, "lip_4": 0,   "lip_5": 17,
+    "lip_0": 61,
+    "lip_1": 291,
+    "lip_2": 39,
+    "lip_3": 269,
+    "lip_4": 0,
+    "lip_5": 17,
     # Head pose
-    "nose_tip": 1, "left_eye_c": 33, "right_eye_c": 263,
-    "left_mouth": 61, "right_mouth": 291, "chin": 152,
+    "nose_tip": 1,
+    "left_eye_c": 33,
+    "right_eye_c": 263,
+    "left_mouth": 61,
+    "right_mouth": 291,
+    "chin": 152,
 }
 
 LANDMARK_COLUMNS: list = []
@@ -106,6 +122,7 @@ def _empty_landmark_row() -> dict:
 # 主检测 + CSV 写入函数
 # ---------------------------------------------------------------------------
 
+
 def run_video_detection_with_csv(
     video_path: str,
     output_csv: str,
@@ -139,14 +156,37 @@ def run_video_detection_with_csv(
     print()
 
     # --- 打开视频 ---
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
     if not cap.isOpened():
         print(f"ERROR: cannot open video: {video_path}")
         return
 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    source_fps   = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # WebM 文件可能返回无效的帧数，通过实际读取计算
+    if total_frames <= 0:
+        print(
+            f"  WARNING: Invalid frame count ({total_frames}), calculating actual frames..."
+        )
+        frame_count = 0
+        while True:
+            ret = cap.grab()
+            if not ret:
+                break
+            frame_count += 1
+        total_frames = frame_count
+        print(f"  Actual frames: {total_frames}")
+
+        # 重新打开视频
+        cap.release()
+        cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+        if not cap.isOpened():
+            print(f"ERROR: cannot reopen video: {video_path}")
+            return
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     vid_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     duration = total_frames / source_fps if source_fps > 0 else 0
@@ -203,12 +243,12 @@ def run_video_detection_with_csv(
     writer.writeheader()
 
     # --- 主循环 ---
-    frame_idx    = 0
-    start_time   = time.time()
+    frame_idx = 0
+    start_time = time.time()
     last_result: Optional[LivenessResult] = None
     rows_written = 0
-    best_score   = 0.0
-    best_reason  = "动作不足"
+    best_score = 0.0
+    best_reason = "动作不足"
 
     print("Processing...\n")
 
@@ -230,32 +270,37 @@ def run_video_detection_with_csv(
 
         if lm_data is None:
             row: dict = {col: "" for col in ALL_COLUMNS}
-            row.update({
-                "frame_idx":      frame_idx,
-                "timestamp_s":    timestamp_s,
-                "face_detected":  False,
-                "is_live":        False,
-                "score_smoothed": 0.0,
-                "motion_score":   0.0,
-                "confidence":     0.0,
-                "quality_score":  0.0,
-                "reason":         "NO_FACE_DETECTED",
-                "current_action": "none",
-                "blink_detected": False,
-                "blink_active":   False,
-                "is_blinking":    False,
-                "mouth_open":     False,
-                "mouth_active":   False,
-                "is_mouth_open":  False,
-                "head_action":    "none",
-                "head_moved":     False,
-                "ear": 0.0, "mar": 0.0, "yaw": 0.0, "pitch": 0.0,
-            })
+            row.update(
+                {
+                    "frame_idx": frame_idx,
+                    "timestamp_s": timestamp_s,
+                    "face_detected": False,
+                    "is_live": False,
+                    "score_smoothed": 0.0,
+                    "motion_score": 0.0,
+                    "confidence": 0.0,
+                    "quality_score": 0.0,
+                    "reason": "NO_FACE_DETECTED",
+                    "current_action": "none",
+                    "blink_detected": False,
+                    "blink_active": False,
+                    "is_blinking": False,
+                    "mouth_open": False,
+                    "mouth_active": False,
+                    "is_mouth_open": False,
+                    "head_action": "none",
+                    "head_moved": False,
+                    "ear": 0.0,
+                    "mar": 0.0,
+                    "yaw": 0.0,
+                    "pitch": 0.0,
+                }
+            )
             row.update(_empty_landmark_row())
         else:
-            landmarks     = lm_data["landmarks"]
+            landmarks = lm_data["landmarks"]
             quality_score = lm_data["quality_score"]
-            fd_result     = fast_detector.detect_liveness(
+            fd_result = fast_detector.detect_liveness(
                 landmarks, lm_data.get("frame_shape", frame.shape)
             )
             current_action = resolve_current_action(fd_result)
@@ -263,42 +308,45 @@ def run_video_detection_with_csv(
             motion_score = fd_result["score"]
             engine.score_history.append(motion_score)
             smoothed = float(
-                sum(list(engine.score_history)[-engine.config.smooth_window:])
+                sum(list(engine.score_history)[-engine.config.smooth_window :])
                 / min(len(engine.score_history), engine.config.smooth_window)
             )
             is_live = smoothed > engine.config.threshold
 
             motion_dict = {
-                "face_detected":  True,
-                "score":          motion_score,
-                "ear":            fd_result["ear"],
-                "mar":            fd_result["mar"],
-                "yaw":            fd_result["yaw"],
-                "pitch":          fd_result["pitch"],
+                "face_detected": True,
+                "score": motion_score,
+                "ear": fd_result["ear"],
+                "mar": fd_result["mar"],
+                "yaw": fd_result["yaw"],
+                "pitch": fd_result["pitch"],
                 "blink_detected": fd_result["blink_detected"],
-                "blink_active":   fd_result.get("blink_active", False),
-                "mouth_moved":    fd_result["mouth_open"],
-                "mouth_active":   fd_result.get("mouth_active", False),
-                "head_moved":     fd_result["head_action"] != "none",
+                "blink_active": fd_result.get("blink_active", False),
+                "mouth_moved": fd_result["mouth_open"],
+                "mouth_active": fd_result.get("mouth_active", False),
+                "head_moved": fd_result["head_action"] != "none",
                 "current_action": current_action,
-                "is_blinking":    fd_result["is_blinking"],
-                "is_mouth_open":  fd_result["is_mouth_open"],
-                "landmarks":      landmarks,
-                "quality_score":  quality_score,
+                "is_blinking": fd_result["is_blinking"],
+                "is_mouth_open": fd_result["is_mouth_open"],
+                "landmarks": landmarks,
+                "quality_score": quality_score,
             }
             details = {
-                "motion":         motion_dict,
+                "motion": motion_dict,
                 "current_action": current_action,
-                "is_blinking":    fd_result["is_blinking"],
-                "is_mouth_open":  fd_result["is_mouth_open"],
-                "yaw":            fd_result["yaw"],
-                "pitch":          fd_result["pitch"],
+                "is_blinking": fd_result["is_blinking"],
+                "is_mouth_open": fd_result["is_mouth_open"],
+                "yaw": fd_result["yaw"],
+                "pitch": fd_result["pitch"],
             }
             result = LivenessResult(
-                is_live=is_live, score=smoothed,
+                is_live=is_live,
+                score=smoothed,
                 confidence=engine._calculate_confidence(smoothed),
-                quality_score=quality_score, motion_score=motion_score,
-                temporal_score=0.0, details=details,
+                quality_score=quality_score,
+                motion_score=motion_score,
+                temporal_score=0.0,
+                details=details,
                 reason=engine._determine_reason(is_live, details, True),
             )
             last_result = result
@@ -308,28 +356,28 @@ def run_video_detection_with_csv(
                 best_reason = result.reason
 
             row = {
-                "frame_idx":      frame_idx,
-                "timestamp_s":    timestamp_s,
-                "face_detected":  True,
-                "is_live":        is_live,
+                "frame_idx": frame_idx,
+                "timestamp_s": timestamp_s,
+                "face_detected": True,
+                "is_live": is_live,
                 "score_smoothed": round(smoothed, 6),
-                "motion_score":   round(motion_score, 6),
-                "confidence":     round(result.confidence, 6),
-                "quality_score":  round(quality_score, 6),
-                "reason":         result.reason,
+                "motion_score": round(motion_score, 6),
+                "confidence": round(result.confidence, 6),
+                "quality_score": round(quality_score, 6),
+                "reason": result.reason,
                 "current_action": current_action,
                 "blink_detected": fd_result["blink_detected"],
-                "blink_active":   fd_result.get("blink_active", False),
-                "is_blinking":    fd_result["is_blinking"],
-                "mouth_open":     fd_result["mouth_open"],
-                "mouth_active":   fd_result.get("mouth_active", False),
-                "is_mouth_open":  fd_result["is_mouth_open"],
-                "head_action":    fd_result["head_action"],
-                "head_moved":     fd_result["head_action"] != "none",
-                "ear":            round(fd_result["ear"], 6),
-                "mar":            round(fd_result["mar"], 6),
-                "yaw":            round(fd_result["yaw"], 4),
-                "pitch":          round(fd_result["pitch"], 4),
+                "blink_active": fd_result.get("blink_active", False),
+                "is_blinking": fd_result["is_blinking"],
+                "mouth_open": fd_result["mouth_open"],
+                "mouth_active": fd_result.get("mouth_active", False),
+                "is_mouth_open": fd_result["is_mouth_open"],
+                "head_action": fd_result["head_action"],
+                "head_moved": fd_result["head_action"] != "none",
+                "ear": round(fd_result["ear"], 6),
+                "mar": round(fd_result["mar"], 6),
+                "yaw": round(fd_result["yaw"], 4),
+                "pitch": round(fd_result["pitch"], 4),
             }
             row.update(_landmark_row(landmarks))
 
@@ -347,37 +395,62 @@ def run_video_detection_with_csv(
             face_ok = bool(row.get("face_detected", False))
             if face_ok:
                 is_live_disp = row.get("is_live", False)
-                score_disp   = float(row.get("score_smoothed", 0.0))
-                ear_disp     = float(row.get("ear", 0.0))
-                mar_disp     = float(row.get("mar", 0.0))
-                yaw_disp     = float(row.get("yaw", 0.0))
-                pitch_disp   = float(row.get("pitch", 0.0))
-                action_disp  = str(row.get("current_action", "none"))
+                score_disp = float(row.get("score_smoothed", 0.0))
+                ear_disp = float(row.get("ear", 0.0))
+                mar_disp = float(row.get("mar", 0.0))
+                yaw_disp = float(row.get("yaw", 0.0))
+                pitch_disp = float(row.get("pitch", 0.0))
+                action_disp = str(row.get("current_action", "none"))
 
                 color = (0, 255, 0) if is_live_disp else (0, 0, 255)
                 label = "LIVE" if is_live_disp else "SPOOF"
                 cv2.putText(
-                    disp, f"{label}  score={score_disp:.3f}",
-                    (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2, cv2.LINE_AA,
+                    disp,
+                    f"{label}  score={score_disp:.3f}",
+                    (10, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.75,
+                    color,
+                    2,
+                    cv2.LINE_AA,
                 )
-                for i, ln in enumerate([
-                    f"EAR:{ear_disp:.3f}  MAR:{mar_disp:.3f}",
-                    f"Yaw:{yaw_disp:+.1f}  Pitch:{pitch_disp:+.1f}",
-                    f"Action: {action_disp}",
-                ]):
+                for i, ln in enumerate(
+                    [
+                        f"EAR:{ear_disp:.3f}  MAR:{mar_disp:.3f}",
+                        f"Yaw:{yaw_disp:+.1f}  Pitch:{pitch_disp:+.1f}",
+                        f"Action: {action_disp}",
+                    ]
+                ):
                     cv2.putText(
-                        disp, ln, (10, 56 + i * 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 1, cv2.LINE_AA,
+                        disp,
+                        ln,
+                        (10, 56 + i * 22),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.52,
+                        (255, 255, 255),
+                        1,
+                        cv2.LINE_AA,
                     )
             else:
                 cv2.putText(
-                    disp, "NO FACE", (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (128, 128, 128), 2, cv2.LINE_AA,
+                    disp,
+                    "NO FACE",
+                    (10, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.75,
+                    (128, 128, 128),
+                    2,
+                    cv2.LINE_AA,
                 )
             cv2.putText(
-                disp, f"Frame {frame_idx}/{total_frames}",
-                (10, disp_h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
-                (200, 200, 200), 1, cv2.LINE_AA,
+                disp,
+                f"Frame {frame_idx}/{total_frames}",
+                (10, disp_h - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (200, 200, 200),
+                1,
+                cv2.LINE_AA,
             )
             cv2.imshow("Liveness CSV Mode", disp)
             if (cv2.waitKey(1) & 0xFF) == 27:
@@ -392,7 +465,8 @@ def run_video_detection_with_csv(
             print(
                 f"\r  Progress: {pct:.1f}%  Frame: {frame_idx}/{total_frames}"
                 f"  FPS: {fps_proc:.1f}",
-                end="", flush=True,
+                end="",
+                flush=True,
             )
 
     # --- 清理 ---
@@ -417,7 +491,9 @@ def run_video_detection_with_csv(
         final_live = best_score > engine.config.threshold
         verdict = "LIVE ✅" if final_live else "SPOOF ❌"
         print(f"\nFinal verdict : {verdict}")
-        print(f"Best score    : {best_score:.4f}  (threshold={engine.config.threshold:.2f})")
+        print(
+            f"Best score    : {best_score:.4f}  (threshold={engine.config.threshold:.2f})"
+        )
         print(f"Reason        : {best_reason}")
 
     _print_summary(out_path)
@@ -426,6 +502,7 @@ def run_video_detection_with_csv(
 # ---------------------------------------------------------------------------
 # 摘要统计
 # ---------------------------------------------------------------------------
+
 
 def _print_summary(csv_path: Path) -> None:
     """打印 CSV 关键字段统计，用于快速诊断。"""
@@ -438,16 +515,24 @@ def _print_summary(csv_path: Path) -> None:
         if not rows:
             return
 
-        total     = len(rows)
-        face_rows = [r for r in rows if str(r.get("face_detected", "")).lower() == "true"]
-        live_rows = [r for r in face_rows if str(r.get("is_live", "")).lower() == "true"]
+        total = len(rows)
+        face_rows = [
+            r for r in rows if str(r.get("face_detected", "")).lower() == "true"
+        ]
+        live_rows = [
+            r for r in face_rows if str(r.get("is_live", "")).lower() == "true"
+        ]
 
         print(f"\n{'=' * 60}")
         print("Per-frame statistics summary")
         print(f"{'=' * 60}")
         print(f"  Total frames       : {total}")
-        print(f"  Frames with face   : {len(face_rows)} ({len(face_rows)/max(total,1):.1%})")
-        print(f"  Frames LIVE        : {len(live_rows)} ({len(live_rows)/max(total,1):.1%})")
+        print(
+            f"  Frames with face   : {len(face_rows)} ({len(face_rows) / max(total, 1):.1%})"
+        )
+        print(
+            f"  Frames LIVE        : {len(live_rows)} ({len(live_rows) / max(total, 1):.1%})"
+        )
 
         def _floats(rows_in: list, col: str) -> list:
             vals = []
@@ -459,18 +544,18 @@ def _print_summary(csv_path: Path) -> None:
             return vals
 
         for col, label in [
-            ("ear",           "EAR          "),
-            ("mar",           "MAR          "),
-            ("yaw",           "Yaw (deg)    "),
-            ("pitch",         "Pitch (deg)  "),
-            ("score_smoothed","Score smooth "),
+            ("ear", "EAR          "),
+            ("mar", "MAR          "),
+            ("yaw", "Yaw (deg)    "),
+            ("pitch", "Pitch (deg)  "),
+            ("score_smoothed", "Score smooth "),
             ("quality_score", "Quality score"),
         ]:
             vals = _floats(face_rows, col)
             if vals:
                 print(
                     f"  {label}: min={min(vals):.4f}  max={max(vals):.4f}"
-                    f"  mean={sum(vals)/len(vals):.4f}"
+                    f"  mean={sum(vals) / len(vals):.4f}"
                 )
 
         action_counts: dict = {}
@@ -505,6 +590,7 @@ def _print_summary(csv_path: Path) -> None:
 # 命令行入口
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="活体检测 CSV 录制器",
@@ -512,7 +598,9 @@ def main() -> None:
     )
     parser.add_argument("--video", "-v", required=True, help="视频文件路径")
     parser.add_argument(
-        "--output", "-o", default=None,
+        "--output",
+        "-o",
+        default=None,
         help="输出 CSV 路径（默认：output/<视频名>_liveness.csv）",
     )
     parser.add_argument(
@@ -522,10 +610,14 @@ def main() -> None:
         help="配置预设（默认：realtime）",
     )
     parser.add_argument(
-        "--threshold", type=float, default=None,
+        "--threshold",
+        type=float,
+        default=None,
         help="活体分数阈值（覆盖配置默认值）",
     )
-    parser.add_argument("--no-ui", action="store_true", help="无 UI 模式（无 OpenCV 窗口）")
+    parser.add_argument(
+        "--no-ui", action="store_true", help="无 UI 模式（无 OpenCV 窗口）"
+    )
     args = parser.parse_args()
 
     if args.output:
@@ -535,10 +627,10 @@ def main() -> None:
         output_csv = str(Path("output") / f"{video_stem}_liveness.csv")
 
     config_map = {
-        "fast":       LivenessConfig.cpu_fast_config,
-        "accurate":   LivenessConfig.cpu_accurate_config,
+        "fast": LivenessConfig.cpu_fast_config,
+        "accurate": LivenessConfig.cpu_accurate_config,
         "video-anti": LivenessConfig.video_anti_spoofing_config,
-        "realtime":   LivenessConfig.realtime_config,
+        "realtime": LivenessConfig.realtime_config,
     }
     cfg = config_map[args.config]()
     if args.threshold is not None:
@@ -554,5 +646,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

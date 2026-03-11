@@ -10,6 +10,7 @@
 import cv2
 import threading
 import queue
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
@@ -20,26 +21,29 @@ from .fusion_engine import LivenessFusionEngine
 from .fast_detector import FastLivenessDetector
 from .utils import build_fast_detector_config, resolve_current_action
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # 动作名称映射（请求字段 → 内部 action 标签）
 # ---------------------------------------------------------------------------
 
 ACTION_ALIASES: Dict[str, List[str]] = {
-    "blink":       ["blinking", "blink"],
-    "mouth_open":  ["mouth_open"],
-    "shake_head":  ["head_turn_left", "head_turn_right"],
-    "nod":         ["head_nod_down", "head_nod_up"],
-    "nod_down":    ["head_nod_down"],
-    "nod_up":      ["head_nod_up"],
-    "turn_left":   ["head_turn_left"],
-    "turn_right":  ["head_turn_right"],
+    "blink": ["blinking", "blink"],
+    "mouth_open": ["mouth_open"],
+    "shake_head": ["head_turn_left", "head_turn_right"],
+    "nod": ["head_nod_down", "head_nod_up"],
+    "nod_down": ["head_nod_down"],
+    "nod_up": ["head_nod_up"],
+    "turn_left": ["head_turn_left"],
+    "turn_right": ["head_turn_right"],
 }
 
 
 # ---------------------------------------------------------------------------
 # 数据类
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ActionResult:
@@ -64,9 +68,9 @@ class ActionVerifyResult:
 
 @dataclass
 class VideoLivenessResult:
-    is_liveness: int                        # 1=通过, 0=不通过
+    is_liveness: int  # 1=通过, 0=不通过
     liveness_confidence: float
-    is_face_exist: int                      # 1=有, 0=无
+    is_face_exist: int  # 1=有, 0=无
     face_info: Optional[FaceInfo]
     action_verify: ActionVerifyResult
 
@@ -74,6 +78,7 @@ class VideoLivenessResult:
 # ---------------------------------------------------------------------------
 # 分析器
 # ---------------------------------------------------------------------------
+
 
 class VideoLivenessAnalyzer:
     """
@@ -116,13 +121,46 @@ class VideoLivenessAnalyzer:
             max_video_duration:  最长分析时长（秒），超过则截断
             per_action_timeout:  每动作时间窗口（秒），为 None 则平均分配
         """
-        cap = cv2.VideoCapture(video_path)
+        logger.info(f"开始分析视频: {video_path}")
+        logger.info(f"要求动作: {actions}")
+
+        cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
+            logger.error(f"无法打开视频文件: {video_path}")
             return self._error_result(actions, "无法打开视频文件")
 
         source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # WebM 文件可能返回无效的帧数，通过实际读取来计算
+        if total_frames <= 0:
+            logger.warning(
+                f"视频帧数无效 ({total_frames})，通过实际读取计算真实帧数..."
+            )
+            # 快速扫描视频获取真实帧数
+            frame_count = 0
+            while True:
+                ret = cap.grab()  # grab() 比 read() 快，只解码不返回图像
+                if not ret:
+                    break
+                frame_count += 1
+            total_frames = frame_count
+            logger.info(f"实际帧数: {total_frames}")
+
+            # 重新打开视频以便后续处理
+            cap.release()
+            cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+            if not cap.isOpened():
+                logger.error(f"重新打开视频失败: {video_path}")
+                return self._error_result(actions, "无法打开视频文件")
+
         video_duration = total_frames / source_fps if source_fps > 0 else 0
+
+        logger.info(
+            f"视频属性: FPS={source_fps:.2f}, 总帧数={total_frames}, 分辨率={width}x{height}, 时长={video_duration:.2f}秒"
+        )
 
         # 计算实际分析帧数上限
         if max_video_duration and max_video_duration > 0:
@@ -134,9 +172,15 @@ class VideoLivenessAnalyzer:
         if per_action_timeout and per_action_timeout > 0 and actions:
             frames_per_action = int(per_action_timeout * source_fps)
         elif actions:
-            frames_per_action = max_frames // len(actions) if len(actions) > 0 else max_frames
+            frames_per_action = (
+                max_frames // len(actions) if len(actions) > 0 else max_frames
+            )
         else:
             frames_per_action = max_frames
+
+        logger.info(
+            f"分析参数: max_frames={max_frames}, frames_per_action={frames_per_action}"
+        )
 
         cap.release()
 
@@ -164,14 +208,18 @@ class VideoLivenessAnalyzer:
         """逐帧推理，同时收集全局活体分数和每动作事件。"""
 
         config = self.liveness_config
+        logger.info(
+            f"开始逐帧分析，配置: threshold={config.threshold}, max_width={config.max_width}"
+        )
 
         # 初始化引擎（每次分析独立实例，避免状态污染）
         engine = LivenessFusionEngine(config)
         fast_detector = FastLivenessDetector(**build_fast_detector_config(config))
 
-        cap = cv2.VideoCapture(video_path)
+        cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
             engine.close()
+            logger.error("重新打开视频失败")
             return self._error_result(actions, "无法打开视频文件")
 
         _max_w = config.max_width if config.max_width > 0 else 0
@@ -182,11 +230,14 @@ class VideoLivenessAnalyzer:
 
         def _decode_worker():
             count = 0
+            decode_success = 0
             while not decode_stop.is_set() and count < max_frames:
                 ret, frm = cap.read()
                 if not ret:
+                    logger.warning(f"解码失败，已解码 {decode_success}/{count + 1} 帧")
                     break
                 count += 1
+                decode_success += 1
                 if _max_w > 0:
                     h0, w0 = frm.shape[:2]
                     if w0 > _max_w:
@@ -195,6 +246,7 @@ class VideoLivenessAnalyzer:
                     frame_queue.put(frm, timeout=0.5)
                 except queue.Full:
                     pass
+            logger.info(f"解码线程完成，成功解码 {decode_success} 帧")
             frame_queue.put(None)
 
         decode_thread = threading.Thread(target=_decode_worker, daemon=True)
@@ -225,7 +277,9 @@ class VideoLivenessAnalyzer:
             total_count += 1
 
             # 决定当前帧属于哪个动作窗口
-            action_slot = min(frame_idx // frames_per_action, len(actions) - 1) if actions else -1
+            action_slot = (
+                min(frame_idx // frames_per_action, len(actions) - 1) if actions else -1
+            )
 
             # 推理
             lm_data = engine.mp_detector.extract_landmarks(frame)
@@ -249,7 +303,7 @@ class VideoLivenessAnalyzer:
             motion_score = fd_result["score"]
             engine.score_history.append(motion_score)
             smoothed = float(
-                sum(list(engine.score_history)[-config.smooth_window:])
+                sum(list(engine.score_history)[-config.smooth_window :])
                 / min(len(engine.score_history), config.smooth_window)
             )
 
@@ -272,22 +326,43 @@ class VideoLivenessAnalyzer:
         cap.release()
         engine.close()
 
+        logger.info(
+            f"帧处理完成: 总帧数={total_count}, 检测到人脸={face_detected_count}, 人脸检出率={face_detected_count / max(total_count, 1):.2%}"
+        )
+        logger.info(
+            f"分数统计: 最高分={max(all_scores) if all_scores else 0:.4f}, 平均分={np.mean(all_scores) if all_scores else 0:.4f}"
+        )
+
         # ------------------------------------------------------------------
         # 计算全局活体结果
         # ------------------------------------------------------------------
         is_face_exist = 1 if face_detected_count > 0 else 0
         avg_quality = float(np.mean(all_quality)) if all_quality else 0.0
-        avg_face_conf = float(np.mean([q for q in all_quality if q > 0])) if face_detected_count > 0 else 0.0
+        avg_face_conf = (
+            float(np.mean([q for q in all_quality if q > 0]))
+            if face_detected_count > 0
+            else 0.0
+        )
 
         # 全局最高平滑分（用最高分而非末帧，避免末尾静止拉低）
         best_score = max(all_scores) if all_scores else 0.0
         is_liveness = 1 if best_score >= config.threshold else 0
-        liveness_confidence = round(min(best_score / max(config.threshold, 1e-6), 1.0), 4)
+        liveness_confidence = round(
+            min(best_score / max(config.threshold, 1e-6), 1.0), 4
+        )
 
-        face_info = FaceInfo(
-            confidence=round(avg_face_conf, 4),
-            quality_score=round(avg_quality, 4),
-        ) if is_face_exist else None
+        logger.info(
+            f"活体判定: is_liveness={is_liveness}, best_score={best_score:.4f}, threshold={config.threshold}, confidence={liveness_confidence}"
+        )
+
+        face_info = (
+            FaceInfo(
+                confidence=round(avg_face_conf, 4),
+                quality_score=round(avg_quality, 4),
+            )
+            if is_face_exist
+            else None
+        )
 
         # ------------------------------------------------------------------
         # 计算每动作结果
@@ -299,12 +374,20 @@ class VideoLivenessAnalyzer:
             events = slot["events"]
             slot_scores = slot["scores"]
 
+            logger.info(
+                f"动作 '{name}': frames={frames_in_slot}, events={events}, avg_score={np.mean(slot_scores) if slot_scores else 0:.4f}"
+            )
+
             if frames_in_slot == 0:
                 # 这段视频没有帧（视频太短）
-                action_details.append(ActionResult(
-                    action=name, passed=False, confidence=0.0,
-                    msg="该动作时间段内无有效帧",
-                ))
+                action_details.append(
+                    ActionResult(
+                        action=name,
+                        passed=False,
+                        confidence=0.0,
+                        msg="该动作时间段内无有效帧",
+                    )
+                )
                 continue
 
             # 动作置信度 = 事件触发帧率（事件数/该时间段总帧数）
@@ -322,14 +405,18 @@ class VideoLivenessAnalyzer:
             else:
                 msg = f"动作幅度过小或置信度不足（触发率 {event_rate:.1%}）"
 
-            action_details.append(ActionResult(
-                action=name,
-                passed=passed,
-                confidence=confidence,
-                msg=msg,
-            ))
+            action_details.append(
+                ActionResult(
+                    action=name,
+                    passed=passed,
+                    confidence=confidence,
+                    msg=msg,
+                )
+            )
 
-        all_actions_passed = all(d.passed for d in action_details) if action_details else True
+        all_actions_passed = (
+            all(d.passed for d in action_details) if action_details else True
+        )
         action_verify = ActionVerifyResult(
             passed=all_actions_passed,
             required_actions=actions,
@@ -379,6 +466,3 @@ def _action_cn(action: str) -> str:
         "turn_right": "向右转头",
     }
     return _MAP.get(action, action)
-
-
-

@@ -28,6 +28,7 @@ from .utils import build_fast_detector_config, resolve_current_action
 # 摄像头实时检测
 # ---------------------------------------------------------------------------
 
+
 def run_camera_detection(
     camera_id: int = 0,
     config: Optional[LivenessConfig] = None,
@@ -82,7 +83,9 @@ def run_camera_detection(
             if lm_data is None:
                 result = _make_no_face_result()
             else:
-                result = _run_fast_inference(engine, fast_detector, lm_data, small_frame)
+                result = _run_fast_inference(
+                    engine, fast_detector, lm_data, small_frame
+                )
         else:
             result = engine.process_frame(frame)
 
@@ -90,7 +93,9 @@ def run_camera_detection(
 
         if show_ui:
             frame = draw_result(
-                frame, result, engine.mp_detector.fps,
+                frame,
+                result,
+                engine.mp_detector.fps,
                 show_landmarks=show_landmarks,
                 fast_detector=fast_detector,
             )
@@ -121,6 +126,7 @@ def run_camera_detection(
 # 视频文件检测
 # ---------------------------------------------------------------------------
 
+
 def run_video_detection(
     video_path: str,
     config: Optional[LivenessConfig] = None,
@@ -147,14 +153,35 @@ def run_video_detection(
         fast_detector = FastLivenessDetector(**build_fast_detector_config(config))
         print("\n✅ 使用快速检测器")
 
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
     if not cap.isOpened():
         print(f"❌ 无法打开视频：{video_path}")
         return
 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    source_fps   = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # WebM 文件可能返回无效的帧数，通过实际读取计算
+    if total_frames <= 0:
+        print(f"⚠️  视频帧数无效，正在计算真实帧数...")
+        frame_count = 0
+        while True:
+            ret = cap.grab()
+            if not ret:
+                break
+            frame_count += 1
+        total_frames = frame_count
+        print(f"✓ 实际帧数: {total_frames}")
+
+        # 重新打开视频
+        cap.release()
+        cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+        if not cap.isOpened():
+            print(f"❌ 重新打开视频失败")
+            return
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     vid_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -228,9 +255,15 @@ def run_video_detection(
 
             if show_ui:
                 h_f, w_f = frame.shape[:2]
-                base = cv2.resize(frame, (disp_w, disp_h)) if (w_f != disp_w or h_f != disp_h) else frame.copy()
+                base = (
+                    cv2.resize(frame, (disp_w, disp_h))
+                    if (w_f != disp_w or h_f != disp_h)
+                    else frame.copy()
+                )
                 disp_frame = draw_result(
-                    base, result, 0,
+                    base,
+                    result,
+                    0,
                     show_landmarks=show_landmarks,
                     fast_detector=fast_detector,
                 )
@@ -238,7 +271,10 @@ def run_video_detection(
                     disp_frame,
                     f"Frame: {frame_idx}/{total_frames}",
                     (10, disp_h - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    1,
                 )
 
         if show_ui and disp_frame is not None:
@@ -262,7 +298,11 @@ def run_video_detection(
         elapsed = time.time() - start_time
         if frame_idx % max(1, int(source_fps)) == 0:
             fps_proc = frame_idx / max(elapsed, 0.001)
-            print(f"\r帧: {frame_idx}/{total_frames}  推理FPS: {fps_proc:.1f}", end="", flush=True)
+            print(
+                f"\r帧: {frame_idx}/{total_frames}  推理FPS: {fps_proc:.1f}",
+                end="",
+                flush=True,
+            )
 
     decode_stop.set()
     decode_thread.join(timeout=2.0)
@@ -278,21 +318,31 @@ def run_video_detection(
 # 共享推理逻辑
 # ---------------------------------------------------------------------------
 
+
 def _make_no_face_result() -> LivenessResult:
     return LivenessResult(
-        is_live=False, score=0.0, confidence=0.0,
-        quality_score=0.0, motion_score=0.0, temporal_score=0.0,
-        details={"motion": {"face_detected": False}, "current_action": "none",
-                 "is_blinking": False, "is_mouth_open": False, "yaw": 0.0},
+        is_live=False,
+        score=0.0,
+        confidence=0.0,
+        quality_score=0.0,
+        motion_score=0.0,
+        temporal_score=0.0,
+        details={
+            "motion": {"face_detected": False},
+            "current_action": "none",
+            "is_blinking": False,
+            "is_mouth_open": False,
+            "yaw": 0.0,
+        },
         reason="NO_FACE_DETECTED",
     )
 
 
 def _run_fast_inference(engine, fast_detector, lm_data, frame) -> LivenessResult:
     """执行单状态机推理（mp_detector 仅提取 landmark，fast_detector 负责所有状态机）"""
-    landmarks     = lm_data["landmarks"]
+    landmarks = lm_data["landmarks"]
     quality_score = lm_data["quality_score"]
-    fd_result     = fast_detector.detect_liveness(
+    fd_result = fast_detector.detect_liveness(
         landmarks, lm_data.get("frame_shape", frame.shape)
     )
     current_action = resolve_current_action(fd_result)
@@ -300,7 +350,7 @@ def _run_fast_inference(engine, fast_detector, lm_data, frame) -> LivenessResult
     motion_score = fd_result["score"]
     engine.score_history.append(motion_score)
     smoothed = float(
-        sum(list(engine.score_history)[-engine.config.smooth_window:])
+        sum(list(engine.score_history)[-engine.config.smooth_window :])
         / min(len(engine.score_history), engine.config.smooth_window)
     )
     is_live = smoothed > engine.config.threshold
@@ -332,10 +382,13 @@ def _run_fast_inference(engine, fast_detector, lm_data, frame) -> LivenessResult
         "pitch": fd_result["pitch"],
     }
     return LivenessResult(
-        is_live=is_live, score=smoothed,
+        is_live=is_live,
+        score=smoothed,
         confidence=engine._calculate_confidence(smoothed),
-        quality_score=quality_score, motion_score=motion_score,
-        temporal_score=0.0, details=details,
+        quality_score=quality_score,
+        motion_score=motion_score,
+        temporal_score=0.0,
+        details=details,
         reason=engine._determine_reason(is_live, details, True),
     )
 
@@ -355,22 +408,35 @@ def _print_final_result(result: LivenessResult):
 # ---------------------------------------------------------------------------
 
 _ACTION_MAP = {
-    "none": "无动作", "eye_open": "睁眼", "blinking": "眨眼",
-    "mouth_open": "张嘴", "head_turn_left": "左摇", "head_turn_right": "右摇",
-    "head_nod_down": "低头", "head_nod_up": "抬头",
+    "none": "无动作",
+    "eye_open": "睁眼",
+    "blinking": "眨眼",
+    "mouth_open": "张嘴",
+    "head_turn_left": "左摇",
+    "head_turn_right": "右摇",
+    "head_nod_down": "低头",
+    "head_nod_up": "抬头",
 }
 _ACTION_ICON_MAP = {
-    "none": "", "eye_open": "👀", "blinking": "👁", "mouth_open": "👄",
-    "head_turn_left": "⬅", "head_turn_right": "➡",
-    "head_nod_down": "⬇", "head_nod_up": "⬆",
+    "none": "",
+    "eye_open": "👀",
+    "blinking": "👁",
+    "mouth_open": "👄",
+    "head_turn_left": "⬅",
+    "head_turn_right": "➡",
+    "head_nod_down": "⬇",
+    "head_nod_up": "⬆",
 }
 _PIL_CACHE: dict = {"key": None, "patch": None, "ph": 0, "pw": 0}
 
 
 def _render_action_patch(icon: str, text: str) -> np.ndarray:
     content = f"{icon} {text}" if icon else text
-    for fp in ["C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc",
-               "C:/Windows/Fonts/msyh.ttc"]:
+    for fp in [
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+    ]:
         try:
             font = ImageFont.truetype(fp, 20)
             break
@@ -418,7 +484,9 @@ def draw_result(
                 ([362, 385, 387, 263, 373, 380], (0, 255, 255)),
                 ([61, 291, 39, 269, 0, 17], (0, 165, 255)),
             ]:
-                pts = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in indices]
+                pts = [
+                    (int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in indices
+                ]
                 for k in range(len(pts)):
                     cv2.line(frame, pts[k], pts[(k + 1) % len(pts)], color, 1)
                 for pt in pts:
@@ -427,24 +495,42 @@ def draw_result(
     # 主状态文字
     status_color = (0, 255, 0) if result.is_live else (0, 0, 255)
     cv2.putText(
-        frame, f"{'LIVE' if result.is_live else 'SPOOF'}  score={result.score:.2f}",
-        (PANEL_X, 30), FONT, 0.8, status_color, 2, cv2.LINE_AA,
+        frame,
+        f"{'LIVE' if result.is_live else 'SPOOF'}  score={result.score:.2f}",
+        (PANEL_X, 30),
+        FONT,
+        0.8,
+        status_color,
+        2,
+        cv2.LINE_AA,
     )
 
     # 信息面板
-    ear_thr   = fast_detector.EAR_THRESHOLD if fast_detector else 0.20
-    mar_thr   = fast_detector.MAR_THRESHOLD if fast_detector else 0.55
-    yaw_thr   = fast_detector.YAW_THRESHOLD if fast_detector else 25.0
+    ear_thr = fast_detector.EAR_THRESHOLD if fast_detector else 0.20
+    mar_thr = fast_detector.MAR_THRESHOLD if fast_detector else 0.55
+    yaw_thr = fast_detector.YAW_THRESHOLD if fast_detector else 25.0
     pitch_thr = fast_detector.PITCH_THRESHOLD if fast_detector else 15.0
 
     lines = [
         (f"Confidence : {result.confidence:.2%}", (255, 255, 255)),
         (f"Quality    : {result.quality_score:.2f}", (255, 255, 255)),
         (f"Motion     : {result.motion_score:.2f}", (255, 255, 255)),
-        (f"EAR        : {ear_val:.3f}", (80, 80, 255) if ear_val < ear_thr else (200, 255, 200)),
-        (f"MAR        : {mar_val:.3f}", (50, 180, 255) if mar_val > mar_thr else (200, 255, 200)),
-        (f"Yaw        : {yaw:+.1f} deg", (0, 220, 255) if abs(yaw) > yaw_thr else (255, 255, 255)),
-        (f"Pitch      : {pitch:+.1f} deg", (0, 220, 255) if abs(pitch) > pitch_thr else (255, 255, 255)),
+        (
+            f"EAR        : {ear_val:.3f}",
+            (80, 80, 255) if ear_val < ear_thr else (200, 255, 200),
+        ),
+        (
+            f"MAR        : {mar_val:.3f}",
+            (50, 180, 255) if mar_val > mar_thr else (200, 255, 200),
+        ),
+        (
+            f"Yaw        : {yaw:+.1f} deg",
+            (0, 220, 255) if abs(yaw) > yaw_thr else (255, 255, 255),
+        ),
+        (
+            f"Pitch      : {pitch:+.1f} deg",
+            (0, 220, 255) if abs(pitch) > pitch_thr else (255, 255, 255),
+        ),
         (f"FPS        : {mp_fps:.1f}", (255, 255, 255)),
         ("[L]landmark [R]reset [ESC]quit", (0, 220, 255)),
     ]
@@ -456,8 +542,16 @@ def draw_result(
     )
     panel_h = PAD + (len(lines) + 1) * LINE_H + PAD
 
-    cv2.rectangle(frame, (PANEL_X, panel_y), (PANEL_X + panel_w, panel_y + panel_h), (0, 0, 0), -1)
-    cv2.rectangle(frame, (PANEL_X, panel_y), (PANEL_X + panel_w, panel_y + panel_h), (200, 200, 200), 1)
+    cv2.rectangle(
+        frame, (PANEL_X, panel_y), (PANEL_X + panel_w, panel_y + panel_h), (0, 0, 0), -1
+    )
+    cv2.rectangle(
+        frame,
+        (PANEL_X, panel_y),
+        (PANEL_X + panel_w, panel_y + panel_h),
+        (200, 200, 200),
+        1,
+    )
 
     y = panel_y + PAD + LINE_H - 4
     for text, color in lines:
@@ -468,12 +562,28 @@ def draw_result(
     action_text = _ACTION_MAP.get(current_action, current_action)
     action_icon = _ACTION_ICON_MAP.get(current_action, "")
     prefix = "Action     : "
-    cv2.putText(frame, prefix, (PANEL_X + PAD, y - LINE_H + 4), FONT, 0.52, (0, 255, 128), 1, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        prefix,
+        (PANEL_X + PAD, y - LINE_H + 4),
+        FONT,
+        0.52,
+        (0, 255, 128),
+        1,
+        cv2.LINE_AA,
+    )
 
     cache_key = (action_icon, action_text)
     if _PIL_CACHE["key"] != cache_key:
         patch = _render_action_patch(action_icon, action_text)
-        _PIL_CACHE.update({"key": cache_key, "patch": patch, "ph": patch.shape[0], "pw": patch.shape[1]})
+        _PIL_CACHE.update(
+            {
+                "key": cache_key,
+                "patch": patch,
+                "ph": patch.shape[0],
+                "pw": patch.shape[1],
+            }
+        )
 
     patch = _PIL_CACHE["patch"]
     ph, pw = _PIL_CACHE["ph"], _PIL_CACHE["pw"]
@@ -495,23 +605,28 @@ def draw_result(
 # 命令行入口
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="活体检测命令行工具")
-    parser.add_argument("--camera", "-c", type=int, default=0, help="摄像头 ID（默认：0）")
+    parser.add_argument(
+        "--camera", "-c", type=int, default=0, help="摄像头 ID（默认：0）"
+    )
     parser.add_argument("--video", "-v", type=str, default=None, help="视频文件路径")
     parser.add_argument(
-        "--config", choices=["fast", "accurate", "video-anti", "realtime"],
-        default="realtime", help="配置模式（默认：realtime）",
+        "--config",
+        choices=["fast", "accurate", "video-anti", "realtime"],
+        default="realtime",
+        help="配置模式（默认：realtime）",
     )
     parser.add_argument("--no-ui", action="store_true", help="不显示 UI 界面")
     parser.add_argument("--threshold", type=float, default=None, help="活体阈值")
     args = parser.parse_args()
 
     config_map = {
-        "fast":       LivenessConfig.cpu_fast_config,
-        "accurate":   LivenessConfig.cpu_accurate_config,
+        "fast": LivenessConfig.cpu_fast_config,
+        "accurate": LivenessConfig.cpu_accurate_config,
         "video-anti": LivenessConfig.video_anti_spoofing_config,
-        "realtime":   LivenessConfig.realtime_config,
+        "realtime": LivenessConfig.realtime_config,
     }
     cfg = config_map[args.config]()
     if args.threshold is not None:
@@ -525,7 +640,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
