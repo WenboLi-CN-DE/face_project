@@ -14,6 +14,7 @@ from .schemas import (
     MoveLivenessAsyncRequest,
     MoveLivenessAsyncResponse,
 )
+from .config import CallbackConfig
 from .async_processor import process_liveness_task
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,10 @@ async def vrl_move_liveness(
             detail=f"视频文件不存在：{req.video_path}",
         )
 
+    # 获取回调配置
+    callback_config = CallbackConfig.from_env()
+    callback_url = req.callback_url or callback_config.default_url
+
     # 提取配置参数
     max_duration = None
     per_action_timeout = None
@@ -80,7 +85,7 @@ async def vrl_move_liveness(
         request_id=req.request_id,
         video_path=req.video_path,
         actions=req.actions,
-        callback_url=req.callback_url,
+        callback_url=callback_url,
         liveness_threshold=req.threshold_config.liveness_threshold,
         action_threshold=req.threshold_config.action_threshold,
         max_video_duration=max_duration,
@@ -88,7 +93,11 @@ async def vrl_move_liveness(
         callback_secret=req.callback_secret,
     )
 
-    logger.info("vrlMoveLiveness 任务已接收 task_id=%s", req.task_id)
+    logger.info(
+        "vrlMoveLiveness 任务已接收 task_id=%s callback_url=%s",
+        req.task_id,
+        callback_url,
+    )
 
     return MoveLivenessAsyncResponse(
         code=0,

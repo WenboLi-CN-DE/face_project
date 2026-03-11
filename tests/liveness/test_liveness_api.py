@@ -19,12 +19,12 @@ def test_schemas_import():
         ActionConfig,
     )
 
+    # 测试不传 callback_url（使用默认值）
     req = MoveLivenessAsyncRequest(
         request_id="test_001",
         task_id="task_001",
         video_path="/tmp/test.mp4",
         actions=["blink", "mouth_open"],
-        callback_url="http://example.com/callback",
         threshold_config=ThresholdConfig(liveness_threshold=0.5, action_threshold=0.85),
         action_config=ActionConfig(max_video_duration=6, per_action_timeout=2),
     )
@@ -32,7 +32,17 @@ def test_schemas_import():
     assert len(req.actions) == 2
     assert req.threshold_config.liveness_threshold == 0.5
     assert req.action_config.max_video_duration == 6
-    assert req.callback_url == "http://example.com/callback"
+    assert req.callback_url is None  # 默认为 None
+
+    # 测试传入 callback_url
+    req2 = MoveLivenessAsyncRequest(
+        request_id="test_002",
+        task_id="task_002",
+        video_path="/tmp/test.mp4",
+        actions=["blink"],
+        callback_url="http://example.com/callback",
+    )
+    assert req2.callback_url == "http://example.com/callback"
 
 
 def test_threshold_config_defaults():
@@ -144,6 +154,7 @@ def test_api_missing_video_returns_400():
         from vrlFace.main_fastapi import app
 
         client = TestClient(app)
+        # 不传 callback_url，使用默认值
         resp = client.post(
             "/vrlMoveLiveness",
             json={
@@ -151,7 +162,6 @@ def test_api_missing_video_returns_400():
                 "task_id": "task_001",
                 "video_path": "/nonexistent/video.mp4",
                 "actions": ["blink"],
-                "callback_url": "http://example.com/callback",
                 "threshold_config": {
                     "liveness_threshold": 0.5,
                     "action_threshold": 0.85,
@@ -173,6 +183,7 @@ def test_api_invalid_action_returns_400():
         from vrlFace.main_fastapi import app
 
         client = TestClient(app)
+        # 不传 callback_url，使用默认值
         resp = client.post(
             "/vrlMoveLiveness",
             json={
@@ -180,7 +191,6 @@ def test_api_invalid_action_returns_400():
                 "task_id": "task_002",
                 "video_path": "/nonexistent/video.mp4",
                 "actions": ["fly"],
-                "callback_url": "http://example.com/callback",
                 "threshold_config": {
                     "liveness_threshold": 0.5,
                     "action_threshold": 0.85,

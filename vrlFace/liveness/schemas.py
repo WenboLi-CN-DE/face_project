@@ -39,7 +39,9 @@ class MoveLivenessAsyncRequest(BaseModel):
         default=["blink"],
         description="要求的动作列表，支持：blink / mouth_open / shake_head / nod / turn_left / turn_right",
     )
-    callback_url: str = Field(..., description="回调地址")
+    callback_url: Optional[str] = Field(
+        None, description="回调地址（可选，默认使用系统配置）"
+    )
     callback_secret: Optional[str] = Field(
         None, description="签名密钥（可选，默认使用系统配置）"
     )

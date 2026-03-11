@@ -161,6 +161,7 @@ class LivenessConfig:
 class CallbackConfig:
     """回调配置"""
 
+    default_url: str = "http://localhost:8092/api/v1/callbacks/liveness/action"
     secret_key: str = "kyc-service-secret-key-2024"
     timeout: int = 10  # 回调超时（秒）
     max_retries: int = 3  # 最大重试次数
@@ -172,6 +173,7 @@ class CallbackConfig:
         import os
 
         return cls(
+            default_url=os.getenv("LIVENESS_CALLBACK_URL", cls.default_url),
             secret_key=os.getenv("LIVENESS_CALLBACK_SECRET", cls.secret_key),
             timeout=int(os.getenv("LIVENESS_CALLBACK_TIMEOUT", str(cls.timeout))),
             max_retries=int(
