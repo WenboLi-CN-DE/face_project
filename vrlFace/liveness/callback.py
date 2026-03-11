@@ -67,6 +67,14 @@ async def send_callback(
         "X-ThirdParty-Signature": signature,
     }
 
+    logger.info(
+        "准备发送回调 url=%s body_len=%d signature=%s",
+        url,
+        len(body),
+        signature[:16] + "...",
+    )
+    logger.debug("回调数据: %s", data)
+
     # 重试逻辑
     for attempt in range(1, config.max_retries + 1):
         try:

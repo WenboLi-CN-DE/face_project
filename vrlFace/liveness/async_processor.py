@@ -105,6 +105,14 @@ async def process_liveness_task(
     # 发送回调
     try:
         callback_config = CallbackConfig.from_env()
+
+        logger.info(
+            "准备发送回调 task_id=%s callback_url=%s data_keys=%s",
+            task_id,
+            callback_url,
+            list(callback_data.keys()) if callback_data else "None",
+        )
+
         success = await send_callback(
             url=callback_url,
             data=callback_data,

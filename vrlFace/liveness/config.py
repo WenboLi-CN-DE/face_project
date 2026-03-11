@@ -161,7 +161,53 @@ class LivenessConfig:
 class CallbackConfig:
     """回调配置"""
 
-    default_url: str = "http://localhost:8092/api/v1/callbacks/liveness/action"
+    default_url: str = "http://172.17.0.1:8092/api/v1/callbacks/liveness/action"
+    secret_key: str = "kyc-service-secret-key-2024"
+    timeout: int = 10  # 回调超时（秒）
+    max_retries: int = 3  # 最大重试次数
+    retry_delay: int = 2  # 重试间隔（秒）
+
+    @classmethod
+    def from_env(cls) -> "CallbackConfig":
+        """从环境变量加载配置"""
+        import os
+
+        # 尝试自动检测 Docker 网关 IP
+        default_url = cls.default_url
+        if not os.getenv("LIVENESS_CALLBACK_URL"):
+            try:
+                # 读取默认网关（Docker 宿主机 IP）
+                import subprocess
+
+                result = subprocess.run(
+                    ["ip", "route", "show", "default"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                if result.returncode == 0:
+                    # 输出格式: default via 172.17.0.1 dev eth0
+                    parts = result.stdout.split()
+                    if len(parts) >= 3 and parts[0] == "default" and parts[1] == "via":
+                        gateway_ip = parts[2]
+                        default_url = (
+                            f"http://{gateway_ip}:8092/api/v1/callbacks/liveness/action"
+                        )
+            except Exception:
+                pass  # 失败则使用默认值
+
+        return cls(
+            default_url=os.getenv("LIVENESS_CALLBACK_URL", default_url),
+            secret_key=os.getenv("LIVENESS_CALLBACK_SECRET", cls.secret_key),
+            timeout=int(os.getenv("LIVENESS_CALLBACK_TIMEOUT", str(cls.timeout))),
+            max_retries=int(
+                os.getenv("LIVENESS_CALLBACK_MAX_RETRIES", str(cls.max_retries))
+            ),
+            retry_delay=int(
+                os.getenv("LIVENESS_CALLBACK_RETRY_DELAY", str(cls.retry_delay))
+            ),
+        )
+
     secret_key: str = "kyc-service-secret-key-2024"
     timeout: int = 10  # 回调超时（秒）
     max_retries: int = 3  # 最大重试次数
