@@ -17,6 +17,7 @@ dependencies = [
     "onnxruntime>=1.16.0",
     "pillow>=10.0.0",
     "mediapipe>=0.10.0",
+    "httpx>=0.25.0",
 ]
 
 [project.optional-dependencies]
