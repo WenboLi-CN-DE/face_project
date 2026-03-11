@@ -120,7 +120,7 @@ class LivenessConfig:
             target_fps=0.0,
             window_size=20,
             smooth_window=5,
-            threshold=0.35,   # 降低：事件提升分已能可靠拉高得分，降低误拒率
+            threshold=0.35,  # 降低：事件提升分已能可靠拉高得分，降低误拒率
             ear_threshold=0.20,
             mar_threshold=0.55,  # 修正：避免闭嘴(MAR<0.33)被误判为张嘴
             yaw_threshold=14.0,
@@ -135,7 +135,7 @@ class LivenessConfig:
             max_width=640,
             target_fps=0.0,
             window_size=20,
-            threshold=0.35,   # 降低：事件提升分已能可靠拉高得分，降低误拒率
+            threshold=0.35,  # 降低：事件提升分已能可靠拉高得分，降低误拒率
             yaw_threshold=14.0,
             pitch_threshold=14.0,
             ear_threshold=0.20,
@@ -155,6 +155,32 @@ class LivenessConfig:
             "window_size": 15,
             "action_confirm_frames": 3,
         }
+
+
+@dataclass
+class CallbackConfig:
+    """回调配置"""
+
+    secret_key: str = "kyc-service-secret-key-2024"
+    timeout: int = 10  # 回调超时（秒）
+    max_retries: int = 3  # 最大重试次数
+    retry_delay: int = 2  # 重试间隔（秒）
+
+    @classmethod
+    def from_env(cls) -> "CallbackConfig":
+        """从环境变量加载配置"""
+        import os
+
+        return cls(
+            secret_key=os.getenv("LIVENESS_CALLBACK_SECRET", cls.secret_key),
+            timeout=int(os.getenv("LIVENESS_CALLBACK_TIMEOUT", str(cls.timeout))),
+            max_retries=int(
+                os.getenv("LIVENESS_CALLBACK_MAX_RETRIES", str(cls.max_retries))
+            ),
+            retry_delay=int(
+                os.getenv("LIVENESS_CALLBACK_RETRY_DELAY", str(cls.retry_delay))
+            ),
+        )
 
 
 config = LivenessConfig.cpu_fast_config()
