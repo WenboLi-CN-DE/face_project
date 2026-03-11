@@ -5,6 +5,7 @@
 - 全局活体判定（基于全程分数）
 - 每个指定动作的逐段检测与置信度
 - 人脸存在性与质量评估
+- 自动处理旋转视频
 """
 
 import cv2
@@ -20,6 +21,7 @@ from .config import LivenessConfig
 from .fusion_engine import LivenessFusionEngine
 from .fast_detector import FastLivenessDetector
 from .utils import build_fast_detector_config, resolve_current_action
+from .video_rotation import RotationHandler
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,8 @@ class VideoLivenessAnalyzer:
         liveness_config:  活体检测引擎配置（None 使用 realtime_config）
         liveness_threshold: 全局活体阈值（覆盖 config.threshold）
         action_threshold:   单动作通过阈值（事件触发率）
+        auto_rotate:        是否自动检测和修正视频旋转（默认 True）
+        force_rotation:     强制指定旋转角度（0/90/180/270），覆盖自动检测
     """
 
     def __init__(
@@ -95,11 +99,15 @@ class VideoLivenessAnalyzer:
         liveness_config: Optional[LivenessConfig] = None,
         liveness_threshold: Optional[float] = None,
         action_threshold: float = 0.85,
+        auto_rotate: bool = True,
+        force_rotation: Optional[int] = None,
     ):
         self.liveness_config = liveness_config or LivenessConfig.video_fast_config()
         if liveness_threshold is not None:
             self.liveness_config.threshold = liveness_threshold
         self.action_threshold = action_threshold
+        self.auto_rotate = auto_rotate
+        self.force_rotation = force_rotation
 
     # ------------------------------------------------------------------
     # 主入口
@@ -123,6 +131,21 @@ class VideoLivenessAnalyzer:
         """
         logger.info(f"开始分析视频: {video_path}")
         logger.info(f"要求动作: {actions}")
+
+        # 初始化旋转处理器
+        rotation_handler = None
+        if self.force_rotation is not None:
+            # 强制指定旋转角度
+            logger.info(f"强制旋转角度: {self.force_rotation}度")
+            rotation_handler = RotationHandler(video_path, auto_detect=False)
+            rotation_handler.rotation = self.force_rotation
+        elif self.auto_rotate:
+            # 自动检测旋转（包括基于人脸的检测）
+            rotation_handler = RotationHandler(video_path, auto_detect=True)
+            if rotation_handler.needs_rotation():
+                logger.info(
+                    f"检测到视频旋转: {rotation_handler.get_rotation()}度，将自动修正"
+                )
 
         cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
@@ -191,6 +214,7 @@ class VideoLivenessAnalyzer:
             source_fps=source_fps,
             max_frames=max_frames,
             frames_per_action=frames_per_action,
+            rotation_handler=rotation_handler,
         )
 
     # ------------------------------------------------------------------
@@ -204,6 +228,7 @@ class VideoLivenessAnalyzer:
         source_fps: float,
         max_frames: int,
         frames_per_action: int,
+        rotation_handler: Optional[RotationHandler] = None,
     ) -> VideoLivenessResult:
         """逐帧推理，同时收集全局活体分数和每动作事件。"""
 
@@ -238,6 +263,11 @@ class VideoLivenessAnalyzer:
                     break
                 count += 1
                 decode_success += 1
+
+                # 应用旋转修正
+                if rotation_handler and rotation_handler.needs_rotation():
+                    frm = rotation_handler.process_frame(frm)
+
                 if _max_w > 0:
                     h0, w0 = frm.shape[:2]
                     if w0 > _max_w:
