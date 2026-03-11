@@ -14,15 +14,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 def test_schemas_import():
     """测试 schema 模型可以正常导入"""
     from vrlFace.liveness.schemas import (
-        MoveLivenessRequest,
+        MoveLivenessAsyncRequest,
         ThresholdConfig,
         ActionConfig,
     )
-    req = MoveLivenessRequest(
+
+    req = MoveLivenessAsyncRequest(
         request_id="test_001",
         task_id="task_001",
         video_path="/tmp/test.mp4",
         actions=["blink", "mouth_open"],
+        callback_url="http://example.com/callback",
         threshold_config=ThresholdConfig(liveness_threshold=0.5, action_threshold=0.85),
         action_config=ActionConfig(max_video_duration=6, per_action_timeout=2),
     )
@@ -30,11 +32,13 @@ def test_schemas_import():
     assert len(req.actions) == 2
     assert req.threshold_config.liveness_threshold == 0.5
     assert req.action_config.max_video_duration == 6
+    assert req.callback_url == "http://example.com/callback"
 
 
 def test_threshold_config_defaults():
     """测试阈值配置默认值"""
     from vrlFace.liveness.schemas import ThresholdConfig
+
     cfg = ThresholdConfig()
     assert cfg.liveness_threshold == 0.5
     assert cfg.action_threshold == 0.85
@@ -45,6 +49,7 @@ def test_video_analyzer_import():
     from vrlFace.liveness.video_analyzer import (
         ACTION_ALIASES,
     )
+
     assert "blink" in ACTION_ALIASES
     assert "mouth_open" in ACTION_ALIASES
     assert "shake_head" in ACTION_ALIASES
@@ -54,8 +59,16 @@ def test_action_aliases_coverage():
     """测试动作别名覆盖所有支持动作"""
     from vrlFace.liveness.video_analyzer import ACTION_ALIASES
 
-    SUPPORTED = {"blink", "mouth_open", "shake_head", "nod", "nod_down", "nod_up",
-                 "turn_left", "turn_right"}
+    SUPPORTED = {
+        "blink",
+        "mouth_open",
+        "shake_head",
+        "nod",
+        "nod_down",
+        "nod_up",
+        "turn_left",
+        "turn_right",
+    }
     for action in SUPPORTED:
         assert action in ACTION_ALIASES, f"动作 {action} 缺少别名映射"
 
@@ -131,17 +144,25 @@ def test_api_missing_video_returns_400():
         from vrlFace.main_fastapi import app
 
         client = TestClient(app)
-        resp = client.post("/vrlMoveLiveness", json={
-            "request_id": "test_req_001",
-            "task_id": "task_001",
-            "video_path": "/nonexistent/video.mp4",
-            "actions": ["blink"],
-            "threshold_config": {"liveness_threshold": 0.5, "action_threshold": 0.85},
-        })
+        resp = client.post(
+            "/vrlMoveLiveness",
+            json={
+                "request_id": "test_req_001",
+                "task_id": "task_001",
+                "video_path": "/nonexistent/video.mp4",
+                "actions": ["blink"],
+                "callback_url": "http://example.com/callback",
+                "threshold_config": {
+                    "liveness_threshold": 0.5,
+                    "action_threshold": 0.85,
+                },
+            },
+        )
         assert resp.status_code == 400
         assert "不存在" in resp.json()["detail"]
     except ImportError:
         import pytest
+
         pytest.skip("需要 httpx: pip install httpx")
 
 
@@ -152,17 +173,25 @@ def test_api_invalid_action_returns_400():
         from vrlFace.main_fastapi import app
 
         client = TestClient(app)
-        resp = client.post("/vrlMoveLiveness", json={
-            "request_id": "test_req_002",
-            "task_id": "task_002",
-            "video_path": "/nonexistent/video.mp4",
-            "actions": ["fly"],
-            "threshold_config": {"liveness_threshold": 0.5, "action_threshold": 0.85},
-        })
+        resp = client.post(
+            "/vrlMoveLiveness",
+            json={
+                "request_id": "test_req_002",
+                "task_id": "task_002",
+                "video_path": "/nonexistent/video.mp4",
+                "actions": ["fly"],
+                "callback_url": "http://example.com/callback",
+                "threshold_config": {
+                    "liveness_threshold": 0.5,
+                    "action_threshold": 0.85,
+                },
+            },
+        )
         assert resp.status_code == 400
         assert "不支持的动作" in resp.json()["detail"]
     except ImportError:
         import pytest
+
         pytest.skip("需要 httpx: pip install httpx")
 
 
@@ -178,5 +207,5 @@ def test_healthz():
         assert resp.json()["status"] == "healthy"
     except ImportError:
         import pytest
-        pytest.skip("需要 httpx: pip install httpx")
 
+        pytest.skip("需要 httpx: pip install httpx")

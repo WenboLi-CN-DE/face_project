@@ -29,20 +29,8 @@ class ActionConfig(BaseModel):
     )
 
 
-class MoveLivenessRequest(BaseModel):
-    request_id: str = Field(..., description="请求唯一 ID")
-    task_id: str = Field(..., description="任务 ID")
-    video_path: str = Field(..., description="视频文件绝对路径")
-    actions: List[str] = Field(
-        default=["blink"],
-        description="要求的动作列表，支持：blink / mouth_open / shake_head / nod / turn_left / turn_right",
-    )
-    threshold_config: ThresholdConfig = Field(default_factory=ThresholdConfig)
-    action_config: Optional[ActionConfig] = Field(None, description="时间维度配置")
-
-
 class MoveLivenessAsyncRequest(BaseModel):
-    """异步活体检测请求"""
+    """活体检测请求（异步处理）"""
 
     request_id: str = Field(..., description="请求唯一 ID")
     task_id: str = Field(..., description="任务 ID")
@@ -64,6 +52,20 @@ class MoveLivenessAsyncRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class MoveLivenessAsyncResponse(BaseModel):
+    """活体检测响应（立即返回）"""
+
+    code: int = 0
+    msg: str = "任务已接收"
+    task_id: str
+    estimated_time: Optional[int] = Field(None, description="预计处理时间（秒）")
+
+
+# ---------------------------------------------------------------------------
+# 回调相关模型
+# ---------------------------------------------------------------------------
+
+
 class FaceInfoResponse(BaseModel):
     confidence: float
     quality_score: float
@@ -80,31 +82,6 @@ class ActionVerifyResponse(BaseModel):
     passed: bool
     required_actions: List[str]
     action_details: List[ActionDetailResponse]
-
-
-class MoveLivenessData(BaseModel):
-    is_liveness: int = Field(description="全局活体判定：1=通过，0=不通过")
-    liveness_confidence: float
-    is_face_exist: int = Field(description="是否检测到人脸：1=是，0=否")
-    face_info: Optional[FaceInfoResponse] = None
-    action_verify: ActionVerifyResponse
-
-
-class MoveLivenessResponse(BaseModel):
-    code: int = 0
-    msg: str = "success"
-    data: Optional[MoveLivenessData] = None
-    request_id: str = ""
-    task_id: str = ""
-
-
-class MoveLivenessAsyncResponse(BaseModel):
-    """异步活体检测响应（立即返回）"""
-
-    code: int = 0
-    msg: str = "任务已接收"
-    task_id: str
-    estimated_time: Optional[int] = Field(None, description="预计处理时间（秒）")
 
 
 class LivenessCallbackData(BaseModel):
