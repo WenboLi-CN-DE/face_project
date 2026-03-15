@@ -49,24 +49,21 @@ mkdir -p /data/videos
 case "$TARGET" in
   face)
     echo ">>> 启动人脸识别服务 (8070)"
-    docker compose -f docker-compose.face.yaml build
-    docker compose -f docker-compose.face.yaml up -d
+    docker compose -f docker-compose.face.yaml up -d --build
     docker compose -f docker-compose.face.yaml ps
     wait_healthy vrl-face 8070
     echo "📖 人脸识别文档：http://localhost:8070/docs"
     ;;
   liveness)
     echo ">>> 启动活体检测服务 (8071)"
-    docker compose -f docker-compose.liveness.yaml build
-    docker compose -f docker-compose.liveness.yaml up -d
+    docker compose -f docker-compose.liveness.yaml up -d --build
     docker compose -f docker-compose.liveness.yaml ps
     wait_healthy vrl-liveness 8071
     echo "📖 活体检测文档：http://localhost:8071/docs"
     ;;
   all)
     echo ">>> 启动全部服务 (8070 + 8071)"
-    docker compose build
-    docker compose up -d
+    docker compose up -d --build
     docker compose ps
     wait_healthy vrl-face     8070
     wait_healthy vrl-liveness 8071

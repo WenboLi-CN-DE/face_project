@@ -13,6 +13,7 @@ services:
     volumes:
       - ../../models:/app/models
       - /data/videos:/data/videos
+      - insightface-models:/root/.insightface/models
     env_file:
       - .env
     logging:
@@ -26,4 +27,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+volumes:
+  insightface-models:
+    driver: local
 
