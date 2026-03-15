@@ -78,7 +78,98 @@ async def vrl_move_liveness(
         max_duration = req.action_config.max_video_duration
         per_action_timeout = req.action_config.per_action_timeout
 
-    # 添加后台任务
+    # 阈值安全调整（自动裁剪到安全范围）
+    requested_liveness_threshold = req.threshold_config.liveness_threshold
+    requested_action_threshold = req.threshold_config.action_threshold
+
+    # 安全范围定义
+    LIVENESS_MIN, LIVENESS_MAX = 0.30, 0.75
+    ACTION_MIN, ACTION_MAX = 0.50, 0.95
+
+    # 推荐范围（用于日志警告）
+    LIVENESS_RECOMMENDED_MIN, LIVENESS_RECOMMENDED_MAX = 0.45, 0.60
+    ACTION_RECOMMENDED_MIN, ACTION_RECOMMENDED_MAX = 0.70, 0.85
+
+    # 自动调整 liveness_threshold 到安全范围
+    adjusted_liveness = requested_liveness_threshold
+    liveness_adjusted = False
+    if requested_liveness_threshold < LIVENESS_MIN:
+        adjusted_liveness = LIVENESS_MIN
+        liveness_adjusted = True
+        logger.warning(
+            "vrlMoveLiveness liveness_threshold=%.2f 低于安全下限，自动调整到 %.2f task_id=%s",
+            requested_liveness_threshold,
+            LIVENESS_MIN,
+            req.task_id,
+        )
+    elif requested_liveness_threshold > LIVENESS_MAX:
+        adjusted_liveness = LIVENESS_MAX
+        liveness_adjusted = True
+        logger.warning(
+            "vrlMoveLiveness liveness_threshold=%.2f 高于安全上限，自动调整到 %.2f task_id=%s",
+            requested_liveness_threshold,
+            LIVENESS_MAX,
+            req.task_id,
+        )
+
+    # 自动调整 action_threshold 到安全范围
+    adjusted_action = requested_action_threshold
+    action_adjusted = False
+    if requested_action_threshold < ACTION_MIN:
+        adjusted_action = ACTION_MIN
+        action_adjusted = True
+        logger.warning(
+            "vrlMoveLiveness action_threshold=%.2f 低于安全下限，自动调整到 %.2f task_id=%s",
+            requested_action_threshold,
+            ACTION_MIN,
+            req.task_id,
+        )
+    elif requested_action_threshold > ACTION_MAX:
+        adjusted_action = ACTION_MAX
+        action_adjusted = True
+        logger.warning(
+            "vrlMoveLiveness action_threshold=%.2f 高于安全上限，自动调整到 %.2f task_id=%s",
+            requested_action_threshold,
+            ACTION_MAX,
+            req.task_id,
+        )
+
+    # 记录最终使用的阈值
+    logger.info(
+        "vrlMoveLiveness 阈值配置 task_id=%s 请求值 [liveness=%.2f, action=%.2f] 使用值 [liveness=%.2f, action=%.2f]",
+        req.task_id,
+        requested_liveness_threshold,
+        requested_action_threshold,
+        adjusted_liveness,
+        adjusted_action,
+    )
+
+    # 如果超出推荐范围但未超出安全范围，记录提示
+    if not liveness_adjusted and (
+        requested_liveness_threshold < LIVENESS_RECOMMENDED_MIN
+        or requested_liveness_threshold > LIVENESS_RECOMMENDED_MAX
+    ):
+        logger.info(
+            "vrlMoveLiveness liveness_threshold=%.2f 超出推荐范围 [%.2f-%.2f] task_id=%s",
+            requested_liveness_threshold,
+            LIVENESS_RECOMMENDED_MIN,
+            LIVENESS_RECOMMENDED_MAX,
+            req.task_id,
+        )
+
+    if not action_adjusted and (
+        requested_action_threshold < ACTION_RECOMMENDED_MIN
+        or requested_action_threshold > ACTION_RECOMMENDED_MAX
+    ):
+        logger.info(
+            "vrlMoveLiveness action_threshold=%.2f 超出推荐范围 [%.2f-%.2f] task_id=%s",
+            requested_action_threshold,
+            ACTION_RECOMMENDED_MIN,
+            ACTION_RECOMMENDED_MAX,
+            req.task_id,
+        )
+
+    # 添加后台任务（使用调整后的阈值）
     background_tasks.add_task(
         process_liveness_task,
         task_id=req.task_id,
@@ -86,8 +177,8 @@ async def vrl_move_liveness(
         video_path=req.video_path,
         actions=req.actions,
         callback_url=callback_url,
-        liveness_threshold=req.threshold_config.liveness_threshold,
-        action_threshold=req.threshold_config.action_threshold,
+        liveness_threshold=adjusted_liveness,
+        action_threshold=adjusted_action,
         max_video_duration=max_duration,
         per_action_timeout=per_action_timeout,
         callback_secret=req.callback_secret,
