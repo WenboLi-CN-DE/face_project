@@ -14,10 +14,10 @@ class LivenessConfig:
 
     threshold: float = 0.5
 
-    ear_threshold: float = 0.20  # 降低：更适合大多数人，0.18-0.22 为宜
-    mar_threshold: float = 0.60  # 实测：闭嘴<0.33，张嘴=0.93，阈值设为0.60
-    yaw_threshold: float = 18.0  # 提高：减少轻微移动误判
-    pitch_threshold: float = 18.0  # 提高：减少轻微移动误判
+    ear_threshold: float = 0.18
+    mar_threshold: float = 0.50
+    yaw_threshold: float = 8.0
+    pitch_threshold: float = 8.0
     min_blinks: int = 1
 
     window_size: int = 30
@@ -91,10 +91,10 @@ class LivenessConfig:
             window_size=15,
             smooth_window=5,
             threshold=0.45,
-            yaw_threshold=18.0,
-            pitch_threshold=18.0,
-            ear_threshold=0.20,
-            mar_threshold=0.60,
+            yaw_threshold=8.0,
+            pitch_threshold=8.0,
+            ear_threshold=0.18,
+            mar_threshold=0.50,
             action_confirm_frames=3,
         )
 
@@ -115,10 +115,10 @@ class LivenessConfig:
             skip_frames=0,
             max_width=640,
             target_fps=0.0,
-            yaw_threshold=18.0,
-            pitch_threshold=18.0,
-            ear_threshold=0.20,
-            mar_threshold=0.60,
+            yaw_threshold=8.0,
+            pitch_threshold=8.0,
+            ear_threshold=0.22,
+            mar_threshold=0.50,
             action_confirm_frames=3,
         )
 
@@ -130,11 +130,11 @@ class LivenessConfig:
             target_fps=0.0,
             window_size=20,
             smooth_window=5,
-            threshold=0.35,  # 降低：事件提升分已能可靠拉高得分，降低误拒率
-            ear_threshold=0.20,
-            mar_threshold=0.55,  # 修正：避免闭嘴(MAR<0.33)被误判为张嘴
-            yaw_threshold=14.0,
-            pitch_threshold=14.0,
+            threshold=0.35,
+            ear_threshold=0.18,
+            mar_threshold=0.50,
+            yaw_threshold=8.0,
+            pitch_threshold=8.0,
             action_confirm_frames=1,
         )
 
@@ -145,23 +145,23 @@ class LivenessConfig:
             max_width=640,
             target_fps=0.0,
             window_size=20,
-            threshold=0.35,  # 降低：事件提升分已能可靠拉高得分，降低误拒率
-            yaw_threshold=14.0,
-            pitch_threshold=14.0,
-            ear_threshold=0.20,
-            mar_threshold=0.55,
+            threshold=0.35,
+            yaw_threshold=8.0,
+            pitch_threshold=8.0,
+            ear_threshold=0.18,
+            mar_threshold=0.50,
             action_confirm_frames=1,
         )
 
     @classmethod
     def fast_detector_config(cls) -> dict:
         return {
-            "ear_threshold": 0.20,
-            "eye_open_threshold": 0.20,
-            "eye_close_threshold": 0.20,  # 修正：与 ear_threshold 一致，避免双阈值不对称
-            "mar_threshold": 0.60,
-            "yaw_threshold": 18.0,
-            "pitch_threshold": 18.0,
+            "ear_threshold": 0.18,
+            "eye_open_threshold": 0.18,
+            "eye_close_threshold": 0.18,
+            "mar_threshold": 0.50,
+            "yaw_threshold": 8.0,
+            "pitch_threshold": 8.0,
             "window_size": 15,
             "action_confirm_frames": 3,
         }

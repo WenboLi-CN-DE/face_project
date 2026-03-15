@@ -105,7 +105,7 @@ class VideoLivenessAnalyzer:
         self,
         liveness_config: Optional[LivenessConfig] = None,
         liveness_threshold: Optional[float] = None,
-        action_threshold: float = 0.85,
+        action_threshold: float = 0.50,
         auto_rotate: bool = True,
         force_rotation: Optional[int] = None,
         enable_benchmark: bool = True,
@@ -202,18 +202,35 @@ class VideoLivenessAnalyzer:
         else:
             max_frames = total_frames
 
-        # 计算每个动作的帧数窗口
+        # 计算基准段帧数（如果启用基准帧校准）
+        benchmark_frames = 0
+        if self.enable_benchmark:
+            benchmark_config = self.benchmark_config or BenchmarkConfig()
+            benchmark_frames = int(benchmark_config.benchmark_duration * source_fps)
+
+            if benchmark_frames >= max_frames * 0.5:
+                benchmark_frames = int(max_frames * 0.2)
+                logger.warning(
+                    f"基准段过长（{benchmark_config.benchmark_duration}秒），自动调整为视频的20%（{benchmark_frames}帧）"
+                )
+
+            logger.info(
+                f"基准段: {benchmark_frames} 帧 ({benchmark_frames / source_fps:.2f}秒)"
+            )
+
+        action_frames = max_frames - benchmark_frames
         if per_action_timeout and per_action_timeout > 0 and actions:
             frames_per_action = int(per_action_timeout * source_fps)
         elif actions:
             frames_per_action = (
-                max_frames // len(actions) if len(actions) > 0 else max_frames
+                action_frames // len(actions) if len(actions) > 0 else action_frames
             )
         else:
-            frames_per_action = max_frames
+            frames_per_action = action_frames
 
         logger.info(
-            f"分析参数: max_frames={max_frames}, frames_per_action={frames_per_action}"
+            f"分析参数: max_frames={max_frames}, benchmark_frames={benchmark_frames}, "
+            f"action_frames={action_frames}, frames_per_action={frames_per_action}"
         )
 
         cap.release()
@@ -225,6 +242,7 @@ class VideoLivenessAnalyzer:
             source_fps=source_fps,
             max_frames=max_frames,
             frames_per_action=frames_per_action,
+            benchmark_frames=benchmark_frames,
             rotation_handler=rotation_handler,
         )
 
@@ -239,9 +257,20 @@ class VideoLivenessAnalyzer:
         source_fps: float,
         max_frames: int,
         frames_per_action: int,
+        benchmark_frames: int,
         rotation_handler: Optional[RotationHandler] = None,
     ) -> VideoLivenessResult:
-        """逐帧推理，同时收集全局活体分数和每动作事件。"""
+        """逐帧推理，同时收集全局活体分数和每动作事件。
+
+        Args:
+            video_path: 视频文件路径
+            actions: 动作列表
+            source_fps: 视频帧率
+            max_frames: 最大分析帧数
+            frames_per_action: 每个动作的帧数
+            benchmark_frames: 基准段帧数（前N帧用于基准采集，不分配给动作）
+            rotation_handler: 旋转处理器
+        """
 
         config = self.liveness_config
         logger.info(
@@ -324,10 +353,18 @@ class VideoLivenessAnalyzer:
             frame_idx += 1
             total_count += 1
 
-            # 决定当前帧属于哪个动作窗口
-            action_slot = (
-                min(frame_idx // frames_per_action, len(actions) - 1) if actions else -1
-            )
+            # 决定当前帧属于哪个动作窗口（跳过基准段）
+            if frame_idx <= benchmark_frames:
+                # 基准段内，不分配到任何动作窗口
+                action_slot = -1
+            elif actions:
+                # 动作段内，计算相对于动作段起始的帧索引
+                action_frame_idx = frame_idx - benchmark_frames
+                action_slot = min(
+                    action_frame_idx // frames_per_action, len(actions) - 1
+                )
+            else:
+                action_slot = -1
 
             # 推理
             lm_data = engine.mp_detector.extract_landmarks(frame)
@@ -464,21 +501,14 @@ class VideoLivenessAnalyzer:
                 )
                 continue
 
-            # 动作置信度计算：
-            # 所有动作统一使用事件次数评估（而非帧覆盖率）
-            # 理由：用户只需在 2 秒窗口内完成 1 次动作，不需要持续保持
             avg_slot_score = float(np.mean(slot_scores)) if slot_scores else 0.0
 
-            # 期望事件次数：2 秒窗口内期望 1 次动作（60 帧≈2 秒@30fps）
-            expected_events = max(1, int(frames_in_slot / 60))
+            expected_events = max(1, int(frames_in_slot / 90))
             event_rate = min(events / max(expected_events, 1), 1.0)
 
             if name in ["blink", "mouth_open"]:
-                # 瞬时事件：事件率权重 0.85 + 平均分权重 0.15
                 confidence = round(event_rate * 0.85 + avg_slot_score * 0.15, 4)
             else:
-                # 持续动作（转头/点头）：事件率权重 0.82 + 平均分权重 0.18
-                # 理由：头部动作的 avg_score 通常较低，需要更高的事件率权重
                 confidence = round(event_rate * 0.82 + avg_slot_score * 0.18, 4)
             passed = confidence >= self.action_threshold
 
