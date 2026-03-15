@@ -137,9 +137,14 @@ class BenchmarkCalibrator:
         if not self.is_collecting:
             return False
 
-        # 检查采集时间窗口
-        elapsed = time.time() - self.collection_start_time
-        if elapsed > self.config.benchmark_duration:
+        # 检查采集时间窗口（基于帧数或时间）
+        frames_collected = len(self.benchmark_frames)
+
+        # 对于快速处理场景，使用帧数判断（假设 30fps）
+        expected_frames = int(self.config.benchmark_duration * 30)
+
+        # 当收集到足够帧数时结束采集
+        if frames_collected >= expected_frames:
             self._finalize_benchmark()
             return False
 

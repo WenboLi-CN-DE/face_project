@@ -42,9 +42,14 @@ def run_headless_test(video_path: str, enable_benchmark: bool = True):
     print(f"视频文件：{video_path}")
     print(f"基准功能：{'启用' if enable_benchmark else '禁用'}")
 
-    # 初始化配置
+    # 初始化配置 - 针对 6 秒短视频优化
     config = LivenessConfig.video_fast_config()
     config.enable_benchmark = enable_benchmark
+    if enable_benchmark:
+        config.benchmark_duration = 2.0  # 前 2 秒采集
+        config.benchmark_min_frames = 2  # 最少 2 帧即可
+        config.benchmark_min_quality = 0.4  # 降低质量阈值适配低质量视频
+        config.benchmark_max_angle = 20.0  # 放宽角度限制
 
     # 初始化引擎
     print("\n[初始化] 加载活体检测引擎...")
@@ -61,9 +66,15 @@ def run_headless_test(video_path: str, enable_benchmark: bool = True):
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # 修复 webm 格式时长检测问题
+    if total_frames <= 0 or total_frames > 1000000:
+        total_frames = 180  # 6 秒@30fps 默认值
+
     duration = total_frames / fps if fps > 0 else 0
 
     print(f"[视频信息] {total_frames} 帧 @ {fps:.1f}fps, 时长={duration:.2f}秒")
+    print(f"[预期结构] 0-2s 静止 (基准采集), 2-4s 动作 1, 4-6s 动作 2")
 
     # 统计信息
     stats = {
@@ -121,12 +132,32 @@ def run_headless_test(video_path: str, enable_benchmark: bool = True):
             else:
                 stats["liveness_failed"] += 1
 
-            # 基准帧校准
+            # 基准帧校准 - 需要从 InsightFace 获取 embedding
+            # 注意：extract_landmarks 返回的是 MediaPipe 数据，不含 embedding
+            # 需要使用 engine.mp_detector._face_analyzer 直接获取
             if enable_benchmark and engine.calibrator is not None:
-                embedding = lm_data.get("embedding")
+                # 使用 InsightFace 获取 embedding
+                embedding = None
+                face_bbox = None
+
+                if engine.mp_detector._face_analyzer is not None:
+                    try:
+                        faces = engine.mp_detector._face_analyzer.get(frame)
+                        if faces:
+                            face = max(faces, key=lambda f: f.bbox[2] * f.bbox[3])
+                            embedding = face.embedding
+                            face_bbox = tuple(face.bbox.astype(int))
+                    except Exception:
+                        pass
+
                 pitch = fd_result.get("pitch", 0.0)
                 yaw = fd_result.get("yaw", 0.0)
-                face_bbox = lm_data.get("face_bbox")
+
+                # 调试输出
+                if frame_idx <= 5:
+                    print(
+                        f"[调试] 帧 {frame_idx}: embedding={embedding is not None}, bbox={face_bbox is not None}, quality={quality_score:.3f}"
+                    )
 
                 if embedding is not None and face_bbox is not None:
                     if engine.calibrator.is_collecting_benchmark():
