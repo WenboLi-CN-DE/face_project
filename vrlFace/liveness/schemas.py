@@ -13,10 +13,10 @@ from pydantic import BaseModel, Field
 
 class ThresholdConfig(BaseModel):
     liveness_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="活体判定阈值"
+        default=0.45, ge=0.0, le=1.0, description="活体判定阈值（推荐 0.45）"
     )
     action_threshold: float = Field(
-        default=0.85, ge=0.0, le=1.0, description="单动作通过阈值"
+        default=0.75, ge=0.0, le=1.0, description="单动作通过阈值（推荐 0.75）"
     )
 
 

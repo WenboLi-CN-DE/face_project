@@ -22,6 +22,7 @@ from .fusion_engine import LivenessFusionEngine
 from .fast_detector import FastLivenessDetector
 from .utils import build_fast_detector_config, resolve_current_action
 from .video_rotation import RotationHandler
+from .benchmark_calibrator import BenchmarkCalibrator, BenchmarkConfig
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +71,15 @@ class ActionVerifyResult:
 
 @dataclass
 class VideoLivenessResult:
-    is_liveness: int  # 1=通过, 0=不通过
+    is_liveness: int  # 1=通过，0=不通过
     liveness_confidence: float
-    is_face_exist: int  # 1=有, 0=无
+    is_face_exist: int  # 1=有，0=无
     face_info: Optional[FaceInfo]
     action_verify: ActionVerifyResult
+    benchmark_verified: Optional[int] = (
+        None  # 基准帧验证结果（1=通过，0=失败，None=未启用）
+    )
+    benchmark_details: Optional[Dict[str, Any]] = None  # 基准帧详细信息
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +97,8 @@ class VideoLivenessAnalyzer:
         action_threshold:   单动作通过阈值（事件触发率）
         auto_rotate:        是否自动检测和修正视频旋转（默认 True）
         force_rotation:     强制指定旋转角度（0/90/180/270），覆盖自动检测
+        enable_benchmark:   是否启用基准帧校准（防替换攻击）
+        benchmark_config:   基准帧配置（None 使用默认配置）
     """
 
     def __init__(
@@ -101,6 +108,8 @@ class VideoLivenessAnalyzer:
         action_threshold: float = 0.85,
         auto_rotate: bool = True,
         force_rotation: Optional[int] = None,
+        enable_benchmark: bool = True,
+        benchmark_config: Optional[BenchmarkConfig] = None,
     ):
         self.liveness_config = liveness_config or LivenessConfig.video_fast_config()
         if liveness_threshold is not None:
@@ -108,6 +117,8 @@ class VideoLivenessAnalyzer:
         self.action_threshold = action_threshold
         self.auto_rotate = auto_rotate
         self.force_rotation = force_rotation
+        self.enable_benchmark = enable_benchmark
+        self.benchmark_config = benchmark_config
 
     # ------------------------------------------------------------------
     # 主入口
@@ -241,6 +252,13 @@ class VideoLivenessAnalyzer:
         engine = LivenessFusionEngine(config)
         fast_detector = FastLivenessDetector(**build_fast_detector_config(config))
 
+        # 初始化基准帧校准器
+        calibrator: Optional[BenchmarkCalibrator] = None
+        if self.enable_benchmark and self.benchmark_config is not None:
+            calibrator = BenchmarkCalibrator(self.benchmark_config)
+        elif self.enable_benchmark:
+            calibrator = BenchmarkCalibrator()
+
         cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
             engine.close()
@@ -339,6 +357,32 @@ class VideoLivenessAnalyzer:
 
             all_scores.append(smoothed)
             all_quality.append(quality_score)
+
+            # 基准帧校准逻辑
+            if calibrator is not None:
+                embedding = lm_data.get("embedding")
+                pitch = fd_result.get("pitch", 0.0)
+                yaw = fd_result.get("yaw", 0.0)
+                face_bbox = lm_data.get("face_bbox")
+
+                if embedding is not None and face_bbox is not None:
+                    if calibrator.is_collecting_benchmark():
+                        calibrator.add_candidate_frame(
+                            embedding=embedding,
+                            landmarks=np.array([[lm.x, lm.y] for lm in landmarks]),
+                            quality_score=quality_score,
+                            face_bbox=face_bbox,
+                            pitch=pitch,
+                            yaw=yaw,
+                            frame_index=frame_idx,
+                        )
+                    else:
+                        calibrator.verify_frame(
+                            embedding=embedding,
+                            landmarks=np.array([[lm.x, lm.y] for lm in landmarks]),
+                            pitch=pitch,
+                            yaw=yaw,
+                        )
 
             if action_slot >= 0:
                 slot = action_windows[action_slot]
@@ -463,12 +507,53 @@ class VideoLivenessAnalyzer:
             action_details=action_details,
         )
 
+        # 基准帧校准结果
+        benchmark_verified: Optional[bool] = None
+        benchmark_details: Optional[Dict[str, Any]] = None
+        if calibrator is not None:
+            if calibrator.is_ready():
+                # 检查验证历史，确保全程没有换人
+                verification_history = list(calibrator.verification_history)
+                if verification_history:
+                    all_verified = all(
+                        v.get("is_same_person", False) for v in verification_history
+                    )
+                    benchmark_verified = all_verified
+                    benchmark_details = {
+                        "status": "verified",
+                        "frames_verified": len(verification_history),
+                        "all_same_person": all_verified,
+                        "benchmark_quality": calibrator.benchmark_quality,
+                    }
+                else:
+                    benchmark_verified = True
+                    benchmark_details = {
+                        "status": "no_verification_needed",
+                        "reason": "视频太短，无验证历史",
+                    }
+            elif calibrator.is_collecting_benchmark():
+                benchmark_verified = False
+                benchmark_details = {
+                    "status": "still_collecting",
+                    "frames_collected": len(calibrator.benchmark_frames),
+                }
+            else:
+                benchmark_verified = False
+                benchmark_details = {
+                    "status": "benchmark_failed",
+                    "reason": "未能采集到足够的基准帧",
+                }
+
         return VideoLivenessResult(
             is_liveness=is_liveness,
             liveness_confidence=liveness_confidence,
             is_face_exist=is_face_exist,
             face_info=face_info,
             action_verify=action_verify,
+            benchmark_verified=1
+            if benchmark_verified
+            else (0 if benchmark_verified is False else None),
+            benchmark_details=benchmark_details,
         )
 
     # ------------------------------------------------------------------

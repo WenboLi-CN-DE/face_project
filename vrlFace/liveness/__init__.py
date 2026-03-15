@@ -8,6 +8,8 @@
     FastLivenessDetector      — 轻量快速检测器
     InsightFaceQualityDetector— InsightFace 质量检测器
     VideoLivenessAnalyzer     — 视频逐段分析器（供 API 使用）
+    BenchmarkCalibrator       — 基准帧校准器（防替换攻击）
+    BenchmarkConfig           — 基准帧配置类
 """
 
 from .mediapipe_detector import MediaPipeLivenessDetector
@@ -16,6 +18,7 @@ from .config import LivenessConfig
 from .fast_detector import FastLivenessDetector
 from .insightface_quality import InsightFaceQualityDetector
 from .video_analyzer import VideoLivenessAnalyzer
+from .benchmark_calibrator import BenchmarkCalibrator, BenchmarkConfig
 
 __all__ = [
     "MediaPipeLivenessDetector",
@@ -24,4 +27,6 @@ __all__ = [
     "FastLivenessDetector",
     "InsightFaceQualityDetector",
     "VideoLivenessAnalyzer",
+    "BenchmarkCalibrator",
+    "BenchmarkConfig",
 ]

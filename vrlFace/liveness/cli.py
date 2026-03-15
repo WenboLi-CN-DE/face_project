@@ -620,6 +620,11 @@ def main():
     )
     parser.add_argument("--no-ui", action="store_true", help="不显示 UI 界面")
     parser.add_argument("--threshold", type=float, default=None, help="活体阈值")
+    parser.add_argument(
+        "--no-benchmark",
+        action="store_true",
+        help="禁用基准帧校准（防替换攻击）",
+    )
     args = parser.parse_args()
 
     config_map = {
@@ -631,6 +636,8 @@ def main():
     cfg = config_map[args.config]()
     if args.threshold is not None:
         cfg.threshold = args.threshold
+    if args.no_benchmark:
+        cfg.enable_benchmark = False
 
     if args.video:
         run_video_detection(args.video, cfg, show_ui=not args.no_ui)

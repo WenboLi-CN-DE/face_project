@@ -34,6 +34,16 @@ class LivenessConfig:
 
     action_confirm_frames: int = 2
 
+    # 基准帧校准配置
+    enable_benchmark: bool = True  # 是否启用基准帧校准
+    benchmark_duration: float = 2.0  # 基准采集时长（秒）
+    benchmark_min_frames: int = 3  # 最少基准帧数
+    benchmark_max_frames: int = 10  # 最多基准帧数
+    benchmark_min_quality: float = 0.6  # 基准帧最低质量
+    benchmark_max_angle: float = 15.0  # 基准帧最大角度
+    embedding_threshold: float = 0.55  # embedding 相似度阈值
+    enable_threshold_calibration: bool = False  # 是否启用阈值校准
+
     def validate(self) -> bool:
         errors = []
         if not (0.0 <= self.threshold <= 1.0):

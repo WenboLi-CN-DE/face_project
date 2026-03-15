@@ -16,6 +16,7 @@ import time
 
 from .config import LivenessConfig
 from .mediapipe_detector import MediaPipeLivenessDetector
+from .benchmark_calibrator import BenchmarkCalibrator, BenchmarkConfig
 
 
 class LivenessResult(NamedTuple):
@@ -55,6 +56,22 @@ class LivenessFusionEngine:
         self.challenge_active = False
         self.challenge_start_time = 0.0
         self.challenge_actions_completed = set()
+
+        self.enable_benchmark: bool = getattr(self.config, "enable_benchmark", False)
+        self.calibrator: Optional[BenchmarkCalibrator] = None
+        if self.enable_benchmark:
+            benchmark_config = BenchmarkConfig(
+                benchmark_duration=getattr(self.config, "benchmark_duration", 2.0),
+                min_benchmark_frames=getattr(self.config, "benchmark_min_frames", 3),
+                max_benchmark_frames=getattr(self.config, "benchmark_max_frames", 10),
+                min_quality_score=getattr(self.config, "benchmark_min_quality", 0.6),
+                max_face_angle=getattr(self.config, "benchmark_max_angle", 15.0),
+                embedding_threshold=getattr(self.config, "embedding_threshold", 0.55),
+                enable_threshold_calibration=getattr(
+                    self.config, "enable_threshold_calibration", False
+                ),
+            )
+            self.calibrator = BenchmarkCalibrator(benchmark_config)
 
     def _resize_for_inference(self, frame: np.ndarray) -> np.ndarray:
         max_w = self.config.max_width
@@ -102,6 +119,46 @@ class LivenessFusionEngine:
                 reason="NO_FACE_DETECTED",
             )
 
+        # 基准帧校准逻辑
+        benchmark_status = None
+        if self.enable_benchmark and self.calibrator is not None:
+            embedding = motion_result.get("embedding")
+            landmarks = motion_result.get("landmarks")
+            pitch = motion_result.get("pitch", 0.0)
+            yaw = motion_result.get("yaw", 0.0)
+            face_bbox = motion_result.get("face_bbox")
+
+            if (
+                embedding is not None
+                and landmarks is not None
+                and face_bbox is not None
+            ):
+                if self.calibrator.is_collecting_benchmark():
+                    # 采集基准帧
+                    added = self.calibrator.add_candidate_frame(
+                        embedding=embedding,
+                        landmarks=landmarks,
+                        quality_score=quality_score,
+                        face_bbox=face_bbox,
+                        pitch=pitch,
+                        yaw=yaw,
+                        frame_index=self.frame_count,
+                    )
+                    benchmark_status = self.calibrator.get_status()
+                else:
+                    # 验证当前帧与基准的匹配度
+                    verification = self.calibrator.verify_frame(
+                        embedding=embedding,
+                        landmarks=landmarks,
+                        pitch=pitch,
+                        yaw=yaw,
+                    )
+                    benchmark_status = verification
+
+                    # 如果不匹配（可能换人），降低活体分数
+                    if not verification.get("verified", True):
+                        motion_score *= 0.5  # 惩罚分数
+
         self._add_to_history(motion_score, quality_score, motion_score)
 
         smoothed_score = self._smooth_score(motion_score)
@@ -115,6 +172,7 @@ class LivenessFusionEngine:
             "is_blinking": motion_result.get("is_blinking", False),
             "is_mouth_open": motion_result.get("is_mouth_open", False),
             "yaw": motion_result.get("yaw", 0.0),
+            "benchmark": benchmark_status,
         }
 
         reason = self._determine_reason(is_live, details, face_detected)
@@ -191,6 +249,8 @@ class LivenessFusionEngine:
         self.frame_count = 0
         self.challenge_active = False
         self.challenge_actions_completed.clear()
+        if self.calibrator is not None:
+            self.calibrator.reset()
 
     def close(self):
         self.mp_detector.close()

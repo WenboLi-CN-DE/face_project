@@ -23,6 +23,16 @@ from .head_action import HeadActionConfig, HeadActionDetector
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
+# InsightFace 用于 embedding 提取（基准帧校准需要）
+try:
+    import insightface
+    from insightface.app import FaceAnalysis
+
+    INSIGHTFACE_AVAILABLE = True
+except ImportError:
+    INSIGHTFACE_AVAILABLE = False
+    FaceAnalysis = None
+
 _DEFAULT_MODEL_PATH = str(
     Path(__file__).resolve().parent.parent.parent / "models" / "face_landmarker.task"
 )
@@ -147,6 +157,19 @@ class MediaPipeLivenessDetector:
         self._smoothed_yaw: Optional[float] = None
 
         # 添加异常值过滤：记录上一帧姿态，过滤突变
+
+        # ── InsightFace (用于 embedding 提取) ─────────────────────────
+        self._face_analyzer: Optional[Any] = None
+        if INSIGHTFACE_AVAILABLE:
+            try:
+                self._face_analyzer = FaceAnalysis(
+                    name="buffalo_l",
+                    providers=["CPUExecutionProvider"],
+                )
+                self._face_analyzer.prepare(ctx_id=-1, det_size=(320, 320))
+                print("✅ InsightFace 已初始化（支持基准帧校准）")
+            except Exception as e:
+                print(f"⚠️  InsightFace 初始化失败：{e}，基准帧校准功能将不可用")
         self._last_raw_pitch: Optional[float] = None
         self._last_raw_yaw: Optional[float] = None
         self._max_frame_delta: float = 10.0  # 单帧最大变化角度（度）
@@ -200,10 +223,12 @@ class MediaPipeLivenessDetector:
         宽高比修正：y *= aspect_ratio(w/h)，还原垂直像素比例。
         典型横屏 640×480：aspect_ratio=1.333，睁眼 EAR ≈ 0.28~0.35。
         """
-        pts = np.array([[landmarks[i].x, landmarks[i].y * aspect_ratio] for i in indices])
+        pts = np.array(
+            [[landmarks[i].x, landmarks[i].y * aspect_ratio] for i in indices]
+        )
         v1 = np.linalg.norm(pts[1] - pts[5])  # 上外 - 下外
         v2 = np.linalg.norm(pts[2] - pts[4])  # 上中 - 下中
-        h = np.linalg.norm(pts[0] - pts[3])   # 内眼角 - 外眼角（水平，不受影响）
+        h = np.linalg.norm(pts[0] - pts[3])  # 内眼角 - 外眼角（水平，不受影响）
         return float((v1 + v2) / (2.0 * h)) if h > 1e-6 else 0.0
 
     def calculate_mar(self, landmarks: list, aspect_ratio: float = 1.0) -> float:
@@ -211,7 +236,10 @@ class MediaPipeLivenessDetector:
         同样需要 y 方向宽高比修正（y *= aspect_ratio=w/h）。
         """
         pts = np.array(
-            [[landmarks[i].x, landmarks[i].y * aspect_ratio] for i in self.OUTER_LIPS_INDICES]
+            [
+                [landmarks[i].x, landmarks[i].y * aspect_ratio]
+                for i in self.OUTER_LIPS_INDICES
+            ]
         )
         v = np.linalg.norm(pts[4] - pts[5])  # 上中 - 下中（垂直）
         h = np.linalg.norm(pts[0] - pts[1])  # 左角 - 右角（水平）
@@ -221,13 +249,13 @@ class MediaPipeLivenessDetector:
     # 空间分布均匀，条件数远优于之前的眼部聚集方案。
     _EPnP_MODEL_POINTS = np.array(
         [
-            (0.0,   0.0,   0.0),    # 1   鼻尖
-            (0.0,  -4.5,  -1.5),    # 10  前额中心（鼻梁上方）
-            (-4.5, -1.5,  -3.5),    # 234 左颧（脸颊外侧）
-            (4.5,  -1.5,  -3.5),    # 454 右颧
-            (-2.5,  2.5,  -2.5),    # 61  左嘴角（表情影响小）
-            (2.5,   2.5,  -2.5),    # 291 右嘴角
-            (0.0,   5.5,  -4.5),    # 152 下巴
+            (0.0, 0.0, 0.0),  # 1   鼻尖
+            (0.0, -4.5, -1.5),  # 10  前额中心（鼻梁上方）
+            (-4.5, -1.5, -3.5),  # 234 左颧（脸颊外侧）
+            (4.5, -1.5, -3.5),  # 454 右颧
+            (-2.5, 2.5, -2.5),  # 61  左嘴角（表情影响小）
+            (2.5, 2.5, -2.5),  # 291 右嘴角
+            (0.0, 5.5, -4.5),  # 152 下巴
         ],
         dtype=np.float64,
     )
@@ -581,7 +609,10 @@ class MediaPipeLivenessDetector:
             "is_blinking": False,
             "is_mouth_open": False,
             "yaw": 0.0,
+            "pitch": 0.0,
             "landmarks": None,
+            "embedding": None,
+            "face_bbox": None,
             "fps": self.fps,
         }
 
@@ -620,6 +651,19 @@ class MediaPipeLivenessDetector:
         # 质量评分：基于人脸尺寸和关键点稳定性
         quality_score = self._calculate_quality_score(frame, landmarks)
 
+        # 提取 InsightFace embedding（用于基准帧校准）
+        embedding = None
+        face_bbox = None
+        if self._face_analyzer is not None:
+            try:
+                faces = self._face_analyzer.get(frame)
+                if faces:
+                    face = max(faces, key=lambda f: f.bbox[2] * f.bbox[3])
+                    embedding = face.embedding
+                    face_bbox = tuple(face.bbox.astype(int))
+            except Exception:
+                pass  # InsightFace 失败不影响主流程
+
         # 检测置信度（基于质量评分）
         detection_confidence = quality_score
 
@@ -639,7 +683,9 @@ class MediaPipeLivenessDetector:
 
             # 如果变化超过阈值，则限制到最大允许变化
             if abs(pitch_delta) > self._max_frame_delta:
-                pitch = self._last_raw_pitch + np.sign(pitch_delta) * self._max_frame_delta
+                pitch = (
+                    self._last_raw_pitch + np.sign(pitch_delta) * self._max_frame_delta
+                )
             if abs(yaw_delta) > self._max_frame_delta:
                 yaw = self._last_raw_yaw + np.sign(yaw_delta) * self._max_frame_delta
 
@@ -653,9 +699,9 @@ class MediaPipeLivenessDetector:
             self._smoothed_yaw = yaw
         else:
             self._smoothed_pitch = a * pitch + (1.0 - a) * self._smoothed_pitch
-            self._smoothed_yaw   = a * yaw   + (1.0 - a) * self._smoothed_yaw
+            self._smoothed_yaw = a * yaw + (1.0 - a) * self._smoothed_yaw
         pitch = self._smoothed_pitch
-        yaw   = self._smoothed_yaw
+        yaw = self._smoothed_yaw
 
         self.current_yaw = yaw
         self.current_pitch = pitch
@@ -693,7 +739,10 @@ class MediaPipeLivenessDetector:
             "is_blinking": self.is_blinking,
             "is_mouth_open": self.is_mouth_open,
             "yaw": yaw,
+            "pitch": pitch,
             "landmarks": landmarks,
+            "embedding": embedding,
+            "face_bbox": face_bbox,
             "fps": self.fps,
         }
         self._last_result = result
@@ -734,7 +783,10 @@ class MediaPipeLivenessDetector:
         self.last_fps_time = time.time()
         self._last_result = None
 
-        if hasattr(self, "_head_action_detector") and self._head_action_detector is not None:
+        if (
+            hasattr(self, "_head_action_detector")
+            and self._head_action_detector is not None
+        ):
             self._head_action_detector.reset()
 
     def close(self):
