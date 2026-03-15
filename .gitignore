@@ -66,6 +66,10 @@ data/*.jpg
 data/*.png
 data/*.jpeg
 data/*.bmp
+data/*.webm
+data/*.mp4
+data/*.avi
+data/*.mov
 !data/.gitkeep
 
 # Output
@@ -86,5 +90,16 @@ Thumbs.db
 .claude
 _bmad
 _bmad-output
-docs
+
+# Test videos
+15/
+
+# Documentation (keep docs folder, ignore generated files)
+docs/*.tmp
+docs/*.bak
+
+# Temporary files
+*.tmp
+*.bak
+*~
 

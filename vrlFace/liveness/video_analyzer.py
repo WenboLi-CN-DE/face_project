@@ -420,12 +420,22 @@ class VideoLivenessAnalyzer:
                 )
                 continue
 
-            # 动作置信度 = 事件触发帧率（事件数/该时间段总帧数）
-            # 并用平均分辅助加权，避免事件极少但分数高被误判
-            event_rate = events / max(frames_in_slot, 1)
+            # 动作置信度计算：
+            # 所有动作统一使用事件次数评估（而非帧覆盖率）
+            # 理由：用户只需在 2 秒窗口内完成 1 次动作，不需要持续保持
             avg_slot_score = float(np.mean(slot_scores)) if slot_scores else 0.0
-            # 综合置信度：事件率权重 0.7 + 平均分权重 0.3
-            confidence = round(event_rate * 0.7 + avg_slot_score * 0.3, 4)
+
+            # 期望事件次数：2 秒窗口内期望 1 次动作（60 帧≈2 秒@30fps）
+            expected_events = max(1, int(frames_in_slot / 60))
+            event_rate = min(events / max(expected_events, 1), 1.0)
+
+            if name in ["blink", "mouth_open"]:
+                # 瞬时事件：事件率权重 0.85 + 平均分权重 0.15
+                confidence = round(event_rate * 0.85 + avg_slot_score * 0.15, 4)
+            else:
+                # 持续动作（转头/点头）：事件率权重 0.82 + 平均分权重 0.18
+                # 理由：头部动作的 avg_score 通常较低，需要更高的事件率权重
+                confidence = round(event_rate * 0.82 + avg_slot_score * 0.18, 4)
             passed = confidence >= self.action_threshold
 
             if passed:

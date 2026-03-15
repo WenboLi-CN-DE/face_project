@@ -36,7 +36,7 @@ services:
     restart: unless-stopped
     volumes:
       - ../../models:/app/models
-      - /data/videos:/app/videos
+      - /data/videos:/data/videos
     env_file:
       - .env
     logging:
