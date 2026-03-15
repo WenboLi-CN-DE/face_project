@@ -484,10 +484,73 @@ class MediaPipeLivenessDetector:
 
         return float(np.clip(float(np.mean(scores)), 0.0, 1.0))
 
+    def _calculate_blur(self, frame: np.ndarray) -> float:
+        """
+        计算模糊度 (Laplacian 方差)
+
+        Args:
+            frame: BGR 图像
+
+        Returns:
+            模糊度分数 (0-1, 越大越清晰)
+        """
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+        # 归一化：variance < 50 很模糊，variance > 200 很清晰
+        blur_score = min(variance / 200.0, 1.0)
+        return blur_score
+
+    def _calculate_face_angle(self, landmarks: list) -> float:
+        """基于 MediaPipe 关键点计算人脸偏转角度分数"""
+        try:
+            left_eye = landmarks[33]
+            right_eye = landmarks[263]
+            nose_tip = landmarks[1]
+
+            # 安全检查
+            if not all(
+                hasattr(lm, "x") and hasattr(lm, "y")
+                for lm in [left_eye, right_eye, nose_tip]
+            ):
+                return 0.5
+
+            # 计算眼睛连线的水平角度
+            dx = float(right_eye.x - left_eye.x)
+            dy = float(right_eye.y - left_eye.y)
+            roll_angle = abs(np.degrees(np.arctan2(dy, dx)))
+
+            # 计算鼻子相对于眼睛的垂直距离（估算 pitch）
+            eye_mid_y = (float(left_eye.y) + float(right_eye.y)) / 2
+            pitch_estimate = abs(float(nose_tip.y) - eye_mid_y) / max(abs(dx), 0.001)
+
+            # 综合角度：roll + pitch 的近似
+            total_angle = roll_angle + (pitch_estimate * 30)
+
+            # 0-15 度：1.0, 15-30 度：线性下降，>45 度：0.3
+            if total_angle <= 15:
+                return 1.0
+            elif total_angle <= 30:
+                return 1.0 - (total_angle - 15) / 15 * 0.4
+            elif total_angle <= 45:
+                return 0.6 - (total_angle - 30) / 15 * 0.3
+            else:
+                return 0.3
+        except (AttributeError, IndexError, ZeroDivisionError):
+            return 0.5  # 默认中等分数
+
     def _calculate_quality_score(self, frame: np.ndarray, landmarks: list) -> float:
-        """基于人脸尺寸和关键点计算质量分数 [0, 1]"""
+        """
+        基于 4 个维度计算人脸质量分数 [0, 1]
+
+        维度与权重：
+        - 人脸尺寸 (40%): 人脸占画面比例
+        - 亮度 (25%): 光照适中程度
+        - 模糊度 (20%): Laplacian 方差
+        - 角度 (15%): 人脸偏转角度
+        """
         h_img, w_img = frame.shape[:2]
 
+        # 1. 人脸尺寸分数 (40%)
         face_width = abs(landmarks[454].x - landmarks[234].x) * w_img
         face_height = abs(landmarks[152].y - landmarks[10].y) * h_img
         face_area = face_width * face_height
@@ -503,6 +566,7 @@ class MediaPipeLivenessDetector:
         else:
             size_score = 0.7
 
+        # 2. 亮度分数 (25%)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         brightness = np.mean(gray) / 255.0
         if 0.25 <= brightness <= 0.75:
@@ -512,8 +576,18 @@ class MediaPipeLivenessDetector:
         else:
             brightness_score = (1.0 - brightness) / 0.25
 
-        scores = [size_score * 0.6, brightness_score * 0.4]
-        return float(np.clip(np.mean(scores), 0.0, 1.0))
+        # 3. 模糊度分数 (20%)
+        blur_score = self._calculate_blur(frame)
+
+        # 4. 角度分数 (15%)
+        angle_score = self._calculate_face_angle(landmarks)
+
+        # 加权平均
+        weights = [0.40, 0.25, 0.20, 0.15]
+        scores = [size_score, brightness_score, blur_score, angle_score]
+        quality_score = sum(s * w for s, w in zip(scores, weights))
+
+        return float(np.clip(quality_score, 0.0, 1.0))
 
     # ------------------------------------------------------------------
     # FPS
