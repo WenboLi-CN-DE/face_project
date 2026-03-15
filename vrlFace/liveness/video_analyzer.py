@@ -330,7 +330,8 @@ class VideoLivenessAnalyzer:
         decode_thread.start()
 
         # 收集全局数据
-        all_scores: List[float] = []
+        all_scores: List[float] = []  # 平滑分数（用于动作段统计）
+        all_raw_scores: List[float] = []  # 原始分数（用于活体判定）
         all_quality: List[float] = []
         face_detected_count = 0
         total_count = 0
@@ -393,6 +394,7 @@ class VideoLivenessAnalyzer:
             )
 
             all_scores.append(smoothed)
+            all_raw_scores.append(motion_score)  # 保存原始分数用于活体判定
             all_quality.append(quality_score)
 
             # 基准帧校准逻辑
@@ -455,15 +457,15 @@ class VideoLivenessAnalyzer:
             else 0.0
         )
 
-        # 全局最高平滑分（用最高分而非末帧，避免末尾静止拉低）
-        best_score = max(all_scores) if all_scores else 0.0
-        is_liveness = 1 if best_score >= config.threshold else 0
+        # 全局最高原始分（使用原始分数而非平滑分，避免平滑窗口拉低峰值）
+        best_raw_score = max(all_raw_scores) if all_raw_scores else 0.0
+        is_liveness = 1 if best_raw_score >= config.threshold else 0
         liveness_confidence = round(
-            min(best_score / max(config.threshold, 1e-6), 1.0), 4
+            min(best_raw_score / max(config.threshold, 1e-6), 1.0), 4
         )
 
         logger.info(
-            f"活体判定: is_liveness={is_liveness}, best_score={best_score:.4f}, threshold={config.threshold}, confidence={liveness_confidence}"
+            f"活体判定：is_liveness={is_liveness}, best_raw_score={best_raw_score:.4f}, threshold={config.threshold}, confidence={liveness_confidence}"
         )
 
         face_info = (
