@@ -20,7 +20,9 @@ class HeadActionConfig:
     yaw_threshold: float = 8.0
     pitch_threshold: float = 8.0
 
-    nod_yaw_gate_ratio: float = 0.6
+    # 增加 nod_yaw_gate_ratio 从 0.6 到 0.75，允许更大的 yaw 变化范围
+    # 原因：失败视频 yaw_range=5.0° 被 4.8°(8*0.6) 过滤掉
+    nod_yaw_gate_ratio: float = 0.75
 
     window_size: int = 30
 

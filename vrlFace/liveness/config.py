@@ -14,9 +14,13 @@ class LivenessConfig:
 
     threshold: float = 0.5
 
-    ear_threshold: float = 0.18
-    mar_threshold: float = 0.50
+    # 眨眼阈值：降低从 0.18 到 0.15，提高眨眼检出率
+    ear_threshold: float = 0.15
+    # 张嘴阈值：0.50→0.35→0.28，实测失败视频 avg_score=0.254-0.330
+    mar_threshold: float = 0.28
+    # 转头阈值：保持 8.0°，配合 nod_yaw_gate_ratio=0.75 使用
     yaw_threshold: float = 8.0
+    # 点头阈值：保持 8.0°（峰峰值检测）
     pitch_threshold: float = 8.0
     min_blinks: int = 1
 
@@ -148,18 +152,21 @@ class LivenessConfig:
             threshold=0.35,
             yaw_threshold=8.0,
             pitch_threshold=8.0,
-            ear_threshold=0.18,
-            mar_threshold=0.50,
+            # ear_threshold: 0.18→0.15 提高眨眼检出率
+            ear_threshold=0.15,
+            # mar_threshold: 0.50→0.28 提高张嘴检出率（实测失败视频 avg_score=0.254-0.330）
+            mar_threshold=0.28,
             action_confirm_frames=1,
         )
 
     @classmethod
     def fast_detector_config(cls) -> dict:
         return {
-            "ear_threshold": 0.18,
+            "ear_threshold": 0.15,
             "eye_open_threshold": 0.18,
             "eye_close_threshold": 0.18,
-            "mar_threshold": 0.50,
+            # mar_threshold: 0.50→0.28 提高张嘴检出率
+            "mar_threshold": 0.28,
             "yaw_threshold": 8.0,
             "pitch_threshold": 8.0,
             "window_size": 15,

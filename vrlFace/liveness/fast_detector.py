@@ -132,11 +132,11 @@ class FastLivenessDetector:
         # ── 事件分数提升（event score boost） ────────────────────────
         # 眨眼/张嘴事件触发后，向 score_history 注入高分，持续 _BOOST_FRAMES 帧，
         # 使 motion_score 在事件窗口内能超过活体判定阈值。
-        _BOOST_FRAMES = 20   # 保持约 0.67s@30fps
+        _BOOST_FRAMES = 20  # 保持约 0.67s@30fps
         self._event_history: deque = deque(maxlen=_BOOST_FRAMES)
         self._BOOST_FRAMES = _BOOST_FRAMES
-        self._BLINK_BOOST = 0.85   # 眨眼事件注入分
-        self._MOUTH_BOOST = 0.85   # 张嘴事件注入分
+        self._BLINK_BOOST = 0.85  # 眨眼事件注入分
+        self._MOUTH_BOOST = 0.85  # 张嘴事件注入分
 
         # ── 性能统计 ──────────────────────────────────────────────────
         self.frame_count: int = 0
@@ -343,19 +343,28 @@ class FastLivenessDetector:
         return blinked
 
     def detect_mouth(self, mar: float) -> bool:
-        """张嘴检测：MAR 突增至阈值以上并复位，计为一次张嘴。
-        状态机：closed → open → closed = mouth_open
-        参考眨眼检测逻辑，确保状态转换正确。
+        """张嘴检测：支持两种检测模式。
+
+        模式 1: 状态转换检测 - closed → open → closed = mouth_open
+        模式 2: 持续张嘴检测 - 张嘴状态持续>=30 帧 = mouth_open
+
+        任一模式满足即判定为张嘴动作。
         """
         self.mar_history.append(mar)
         moved = False
 
+        # ── 模式 1: 状态转换检测（closed → open → closed） ─────────────
         if self.mouth_state == "closed":
             if mar > self.MAR_THRESHOLD:
                 self.mouth_state = "open"
-                self._mouth_open_frames = 1  # 初始化为1
+                self._mouth_open_frames = 1
         else:  # open
-            self._mouth_open_frames += 1  # 持续张嘴时累加
+            self._mouth_open_frames += 1
+            # 模式 2: 持续张嘴超过 30 帧（约 1s@30fps）也判定为有效张嘴
+            if self._mouth_open_frames >= 30:
+                moved = True
+                # 触发后重置，避免重复触发（需要 MAR 回落后重新累加）
+                self._mouth_open_frames = 0
             if mar <= self.MAR_THRESHOLD:
                 # 上限从 30 放宽到 150（约 5s@30fps），兼容夸张张嘴或低帧率视频
                 if 1 <= self._mouth_open_frames <= 150:
@@ -501,7 +510,9 @@ class FastLivenessDetector:
 
             # 如果变化超过阈值，则限制到最大允许变化
             if abs(pitch_delta) > self._max_frame_delta:
-                pitch = self._last_raw_pitch + np.sign(pitch_delta) * self._max_frame_delta
+                pitch = (
+                    self._last_raw_pitch + np.sign(pitch_delta) * self._max_frame_delta
+                )
             if abs(yaw_delta) > self._max_frame_delta:
                 yaw = self._last_raw_yaw + np.sign(yaw_delta) * self._max_frame_delta
 
