@@ -355,17 +355,25 @@ class VideoLivenessAnalyzer:
             total_count += 1
 
             # 决定当前帧属于哪个动作窗口（跳过基准段）
-            if frame_idx <= benchmark_frames:
-                # 基准段内，不分配到任何动作窗口
-                action_slot = -1
-            elif actions:
+            # 使用交叉时间槽：允许 20% 重叠
+            OVERLAP_RATIO = 0.2
+            action_slot = -1
+            in_cross_zone = False
+
+            if frame_idx > benchmark_frames and actions:
                 # 动作段内，计算相对于动作段起始的帧索引
                 action_frame_idx = frame_idx - benchmark_frames
-                action_slot = min(
-                    action_frame_idx // frames_per_action, len(actions) - 1
-                )
-            else:
-                action_slot = -1
+                base_slot = action_frame_idx // frames_per_action
+
+                # 检查是否在交叉区域
+                slot_end = (base_slot + 1) * frames_per_action
+                overlap = int(frames_per_action * OVERLAP_RATIO)
+
+                # 非最后一个动作：有向后重叠
+                if base_slot < len(actions) - 1:
+                    in_cross_zone = action_frame_idx >= slot_end - overlap
+
+                action_slot = min(base_slot, len(actions) - 1)
 
             # 推理
             lm_data = engine.mp_detector.extract_landmarks(frame)
@@ -430,9 +438,25 @@ class VideoLivenessAnalyzer:
                 slot["quality"].append(quality_score)
 
                 # 检查当前帧是否触发了该动作的事件
+                # 使用跨槽检测：根据检测到的动作类型匹配对应的时间槽
                 expected_actions = ACTION_ALIASES.get(slot["name"], [slot["name"]])
+
+                # 方案 1: 当前槽的动作匹配
                 if current_action in expected_actions:
-                    slot["events"] += 1
+                    # 交叉区域内权重 0.8，严格区域内权重 1.0
+                    weight = 0.8 if in_cross_zone else 1.0
+                    slot["events"] += weight
+
+                # 方案 2: 跨槽匹配 - 如果检测到的动作属于其他槽，也计入
+                if current_action != "none" and current_action not in expected_actions:
+                    for other_slot in action_windows:
+                        other_actions = ACTION_ALIASES.get(
+                            other_slot["name"], [other_slot["name"]]
+                        )
+                        if current_action in other_actions:
+                            # 跨槽计入，权重 0.6
+                            other_slot["events"] += 0.6
+                            break
 
         decode_stop.set()
         decode_thread.join(timeout=2.0)

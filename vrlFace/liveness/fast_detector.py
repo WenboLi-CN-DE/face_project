@@ -57,10 +57,10 @@ class FastLivenessDetector:
         self,
         ear_threshold: float = 0.20,
         mar_threshold: float = 0.60,
-        yaw_threshold: float = 15.0,
-        pitch_threshold: float = 15.0,
-        window_size: int = 30,
-        action_confirm_frames: int = 3,
+        yaw_threshold: float = 3.0,  # 降低从 8.0° → 5.0° → 3.0°
+        pitch_threshold: float = 3.0,  # 降低从 8.0° → 5.0° → 3.0°
+        window_size: int = 60,  # 增加从 30 → 60 帧
+        action_confirm_frames: int = 2,  # 降低从 3 → 2
         eye_open_threshold: float | None = None,
         eye_close_threshold: float | None = None,
     ):
@@ -70,8 +70,8 @@ class FastLivenessDetector:
         Args:
             ear_threshold:       EAR 闭眼阈值，低于此值判定为闭眼（典型 0.18~0.22）
             mar_threshold:       MAR 张嘴阈值，高于此值判定为张嘴（实测：闭嘴<0.33，张嘴=0.93）
-            yaw_threshold:       摇头判定的 Yaw 角峰峰值阈值（度），滑动窗口内
-            pitch_threshold:     点头判定的 Pitch 角变化阈值（度），滑动窗口内
+            yaw_threshold:       摇头判定的 Yaw 角峰峰值阈值（度），滑动窗口内（优化：15.0° → 8.0°）
+            pitch_threshold:     点头判定的 Pitch 角变化阈值（度），滑动窗口内（优化：15.0° → 8.0°）
             window_size:         Yaw/Pitch 滑动窗口帧数
             action_confirm_frames: 动作需持续的最少帧数（防瞬时噪声）
         """
