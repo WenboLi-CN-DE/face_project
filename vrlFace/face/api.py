@@ -18,6 +18,7 @@ from PIL import Image
 
 from .recognizer import face_detection, gen_verify_res, face_search
 from .config import config
+from .id_preprocess import preprocess_id_photo
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,13 @@ async def vrl_face_id_comparison(
         image1 = _read_image(picture1, await picture1.read())
         image2 = _read_image(picture2, await picture2.read())
 
+        # 仅对证件照做预处理（对齐+裁剪+增强）
+        image1 = preprocess_id_photo(image1)
+
         # 使用人证比对专用阈值（高于普通比对，安全性更强）
-        result = gen_verify_res(image1, image2, threshold=config.id_comparison_threshold)
+        result = gen_verify_res(
+            image1, image2, threshold=config.id_comparison_threshold
+        )
 
         # 将余弦相似度（0~1）转换为百分制，与方案文档保持一致
         result["confidence"] = round(result["confidence"] * 100, 2)
@@ -164,5 +170,3 @@ async def vrl_face_id_comparison(
     except Exception as e:
         logger.error("vrlFaceIdComparison error: %s", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"识别过程出错：{str(e)}")
-
-

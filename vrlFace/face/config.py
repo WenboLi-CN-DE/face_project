@@ -23,10 +23,12 @@ class FaceConfig:
     ctx_id: int = -1  # GPU ID，-1 表示使用 CPU，0+ 表示 GPU 编号
 
     # ==================== 相似度阈值 ====================
-    similarity_threshold: float = 0.55       # 默认匹配阈值
+    similarity_threshold: float = 0.55  # 默认匹配阈值
     high_confidence_threshold: float = 0.70  # 高置信度阈值
-    low_confidence_threshold: float = 0.40   # 低置信度阈值（宽松模式）
-    id_comparison_threshold: float = 0.60    # 人证比对专用阈值（安全性要求更高）
+    low_confidence_threshold: float = 0.40  # 低置信度阈值（宽松模式）
+    id_comparison_threshold: float = 0.60  # 人证比对专用阈值（安全性要求更高）
+    id_crop_expand_ratio: float = 0.3  # 证件照裁剪时 bbox 扩展比例
+    id_enhance_enabled: bool = True  # 证件照图像增强开关（CLAHE + 去噪）
 
     # ==================== 质量控制 ====================
     min_face_size: int = 80  # 最小人脸尺寸（像素）
@@ -62,6 +64,9 @@ class FaceConfig:
             high_confidence_threshold=float(os.getenv("FACE_HIGH_THRESHOLD", "0.70")),
             low_confidence_threshold=float(os.getenv("FACE_LOW_THRESHOLD", "0.40")),
             id_comparison_threshold=float(os.getenv("FACE_ID_THRESHOLD", "0.60")),
+            id_crop_expand_ratio=float(os.getenv("FACE_ID_CROP_EXPAND", "0.3")),
+            id_enhance_enabled=os.getenv("FACE_ID_ENHANCE", "true").lower()
+            in ("true", "1", "yes"),
             min_face_size=int(os.getenv("FACE_MIN_SIZE", "80")),
             max_face_angle=float(os.getenv("FACE_MAX_ANGLE", "30.0")),
             min_quality_score=float(os.getenv("FACE_MIN_QUALITY", "0.5")),
@@ -125,6 +130,8 @@ class FaceConfig:
         print(f"高置信度阈值: {self.high_confidence_threshold}")
         print(f"低置信度阈值: {self.low_confidence_threshold}")
         print(f"人证比对阈值: {self.id_comparison_threshold}")
+        print(f"id_crop_expand_ratio: {self.id_crop_expand_ratio}")
+        print(f"id_enhance_enabled: {self.id_enhance_enabled}")
         print("-" * 60)
         print(f"最小人脸尺寸: {self.min_face_size} 像素")
         print(f"最大人脸角度: {self.max_face_angle}°")
@@ -190,4 +197,3 @@ if __name__ == "__main__":
     print("\n4. 配置验证:")
     is_valid = config.validate()
     print(f"配置{'有效' if is_valid else '无效'}")
-
