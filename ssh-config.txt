@@ -1,0 +1,20 @@
+# SSH 配置文件 - 远程服务器连接配置
+# 用法：在 remote_fetch.py 中通过 --config <名称> 指定
+#
+# 快速开始:
+#   1. 修改下面的配置信息，替换为你的实际服务器信息
+#   2. 运行：uv run python scripts/remote_fetch.py --config <配置名称>
+#   3. 查看所有配置：uv run python scripts/ssh_config.py
+
+[face-server]
+# 生产服务器配置
+host = 159.138.228.40
+user = root
+pem-key = /home/wenbo/personal_project/face_project/data/KeyPair-v2.pem
+port = 22
+# Docker 日志导出配置
+docker-container = liveness
+docker-log-output = /opt/test2026/face_cls/face_project/data/vrlface.log
+# 传统日志路径（如果不使用 Docker）
+remote-log = /opt/face_cls/logs/app.log
+remote-video-dir = /data/videos
