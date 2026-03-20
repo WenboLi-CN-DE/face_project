@@ -31,6 +31,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 仅安装运行时系统依赖（OpenCV / InsightFace / MediaPipe 所需）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
+    libgles2 \
+    libegl1 \
+    libgbm1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
