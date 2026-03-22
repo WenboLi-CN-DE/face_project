@@ -85,7 +85,9 @@ class SilentLivenessDetector:
 
         # 提取防伪置信度
         anti_spoof_confidence = float(deepface_result.get("confidence", 0.0))
-        is_real = deepface_result.get("dominant_printed", "Printed") == "Real"
+        dominant_printed = deepface_result.get("dominant_printed", "Printed")
+        printed_analysis = deepface_result.get("printed_analysis", {})
+        printed_real_prob = float(printed_analysis.get("Real", 0.0))
 
         logger.info(
             "analyze_deepface 原始返回: %s | analyze_image spoof: %s",
@@ -93,8 +95,22 @@ class SilentLivenessDetector:
             spoof_info,
         )
 
-        final_confidence = 0.4 * real_prob + 0.6 * anti_spoof_confidence
-        is_liveness = 1 if (is_real and final_confidence > 0.5) else 0
+        # 加权融合置信度
+        final_confidence = 0.4 * real_prob + 0.6 * printed_real_prob
+
+        # 方案 B: 加权融合 + 单项保护（处理模型结果不一致）
+        # 通过条件：
+        # 1. 融合分数高 (>0.55)
+        # 2. 或两个模型都 moderately 确信 (避免单一模型失误)
+        is_liveness = (
+            1
+            if (
+                final_confidence > 0.55
+                or (real_prob > 0.9 and printed_real_prob > 0.3)
+                or (real_prob > 0.7 and printed_real_prob > 0.6)
+            )
+            else 0
+        )
 
         result["is_liveness"] = is_liveness
         result["confidence"] = round(final_confidence, 4)
