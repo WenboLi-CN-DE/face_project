@@ -97,47 +97,56 @@ class SilentLivenessDetector:
             result["confidence"] = round(image_real_prob, 4)
             return result
 
-        # Step 3: 智能投票策略
+        # Step 3: 加权融合策略（参考原始融合逻辑）
         image_vote = image_real_prob > 0.5
         deepface_vote = deepface_real_prob > 0.5
 
-        # 检测模型冲突：一个强烈认为真，另一个强烈认为假
-        strong_conflict = (image_real_prob > 0.8 and deepface_real_prob < 0.2) or (
-            deepface_real_prob > 0.8 and image_real_prob < 0.2
+        # 检测模型严重冲突
+        severe_conflict = (image_real_prob >= 0.6 and deepface_real_prob < 0.15) or (
+            deepface_real_prob >= 0.6 and image_real_prob < 0.15
         )
 
-        if strong_conflict:
-            # 冲突时的决策逻辑（优先级从高到低）
-
-            # 优先级1: deepface 极度确信是假（<0.05）→ 拒绝（防翻拍最高优先级）
-            if deepface_real_prob < 0.05:
-                is_liveness = 0
-                final_confidence = deepface_real_prob
+        if severe_conflict:
+            # 严重冲突时：降低不可靠模型的权重
+            if image_real_prob >= 0.6 and deepface_real_prob < 0.15:
+                # image 确信真 + deepface 强烈认为假 → 可能是 deepface 误判
+                # 降低 deepface 权重
+                final_confidence = 0.7 * image_real_prob + 0.3 * deepface_real_prob
+                # 宽松阈值
+                is_liveness = (
+                    1
+                    if (
+                        final_confidence > 0.45
+                        or (image_real_prob > 0.75 and deepface_real_prob > 0.05)
+                    )
+                    else 0
+                )
                 logger.warning(
-                    "⚠️  模型冲突：deepface 极度确信假(%.4f)，拒绝（疑似翻拍）",
+                    "⚠️  冲突：image 确信真(%.4f) vs deepface 强烈假(%.4f)，降低 deepface 权重",
+                    image_real_prob,
                     deepface_real_prob,
                 )
-            # 优先级2: image 极度确信是真（>0.95）且 deepface 不是极度确信假（>=0.05）→ 通过
-            elif image_real_prob > 0.95:
-                is_liveness = 1
-                final_confidence = image_real_prob
-                logger.warning(
-                    "⚠️  模型冲突：image 极度确信(%.4f)，通过",
-                    image_real_prob,
-                )
-            # 优先级3: 其他冲突 → 信任 deepface
             else:
-                is_liveness = 1 if deepface_vote else 0
-                final_confidence = deepface_real_prob
+                # deepface 确信真 + image 强烈认为假 → 罕见情况，保守拒绝
+                final_confidence = 0.5 * image_real_prob + 0.5 * deepface_real_prob
+                is_liveness = 1 if final_confidence > 0.6 else 0
                 logger.warning(
-                    "⚠️  模型冲突：image=%.4f vs deepface=%.4f，采用 deepface 判断",
-                    image_real_prob,
+                    "⚠️  冲突：deepface 确信真(%.4f) vs image 强烈假(%.4f)，保守判断",
                     deepface_real_prob,
+                    image_real_prob,
                 )
         else:
-            # 无冲突：OR 逻辑（只要一个说真人就通过）
-            is_liveness = 1 if (image_vote or deepface_vote) else 0
-            final_confidence = max(image_real_prob, deepface_real_prob)
+            # 无严重冲突：标准加权融合
+            final_confidence = 0.4 * image_real_prob + 0.6 * deepface_real_prob
+            is_liveness = (
+                1
+                if (
+                    final_confidence > 0.55
+                    or (image_real_prob > 0.85 and deepface_real_prob > 0.2)
+                    or (image_real_prob > 0.65 and deepface_real_prob > 0.5)
+                )
+                else 0
+            )
 
         result["is_liveness"] = is_liveness
         result["confidence"] = round(final_confidence, 4)
