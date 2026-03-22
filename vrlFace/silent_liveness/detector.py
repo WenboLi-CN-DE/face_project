@@ -97,17 +97,27 @@ class SilentLivenessDetector:
             result["confidence"] = round(image_real_prob, 4)
             return result
 
-        # Step 3: 双模型投票（OR 逻辑）
+        # Step 3: 智能投票策略
         image_vote = image_real_prob > 0.5
         deepface_vote = deepface_real_prob > 0.5
 
-        # 只要有一个模型认为是真人就通过（宽松策略）
-        is_liveness = 1 if (image_vote or deepface_vote) else 0
+        # 检测模型冲突：一个强烈认为真，另一个强烈认为假
+        strong_conflict = (image_real_prob > 0.8 and deepface_real_prob < 0.2) or (
+            deepface_real_prob > 0.8 and image_real_prob < 0.2
+        )
 
-        # 置信度：如果通过，取较高值；如果拒绝，取较低值
-        if is_liveness == 1:
-            final_confidence = max(image_real_prob, deepface_real_prob)
+        if strong_conflict:
+            # 冲突时：更相信 analyze_deepface（专门防翻拍）
+            is_liveness = 1 if deepface_vote else 0
+            final_confidence = deepface_real_prob
+            logger.warning(
+                "⚠️  模型冲突检测：image=%.4f vs deepface=%.4f，采用 deepface 判断",
+                image_real_prob,
+                deepface_real_prob,
+            )
         else:
+            # 无冲突：OR 逻辑（只要一个说真人就通过）
+            is_liveness = 1 if (image_vote or deepface_vote) else 0
             final_confidence = max(image_real_prob, deepface_real_prob)
 
         result["is_liveness"] = is_liveness
