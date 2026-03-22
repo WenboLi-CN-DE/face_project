@@ -36,27 +36,40 @@ class SilentLivenessDetector:
 
     def _detect_moire_fft(self, image_path: str) -> float:
         """
-        FFT 频域检测莫尔纹
+        FFT 频域检测莫尔纹（改进版：检测周期性峰值）
 
         Returns:
-            moire_score: 莫尔纹分数，越高越可能是翻拍（>2.0 疑似翻拍）
+            moire_score: 莫尔纹分数，越高越可能是翻拍（>0.15 疑似翻拍）
         """
         try:
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return 0.0
 
+            # 缩放到固定尺寸以标准化
+            img = cv2.resize(img, (256, 256))
+
             # FFT 变换
             f_transform = np.fft.fft2(img)
             f_shift = np.fft.fftshift(f_transform)
             magnitude = np.abs(f_shift)
 
-            # 分析高频区域（莫尔纹主要在高频）
+            # 去除中心低频（DC 分量）
             h, w = magnitude.shape
-            high_freq = magnitude[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
+            center_mask = np.ones((h, w), dtype=bool)
+            center_mask[h // 2 - 10 : h // 2 + 10, w // 2 - 10 : w // 2 + 10] = False
+            magnitude_filtered = magnitude * center_mask
 
-            # 计算高频区域的标准差/均值比（莫尔纹会产生周期性峰值）
-            moire_score = np.std(high_freq) / (np.mean(high_freq) + 1e-6)
+            # 检测周期性峰值：莫尔纹会在特定频率产生明显峰值
+            # 计算频谱的峰值突出度
+            mean_mag = np.mean(magnitude_filtered)
+            max_mag = np.max(magnitude_filtered)
+
+            # 峰值突出度：最大值与均值的比值
+            peak_prominence = (max_mag - mean_mag) / (mean_mag + 1e-6)
+
+            # 归一化到 0-1 范围
+            moire_score = min(peak_prominence / 100.0, 1.0)
 
             return float(moire_score)
         except Exception as e:
@@ -130,7 +143,7 @@ class SilentLivenessDetector:
 
         # Step 3: FFT 莫尔纹检测
         moire_score = self._detect_moire_fft(image_path)
-        has_moire = moire_score > 2.0  # 阈值：>2.0 疑似翻拍
+        has_moire = moire_score > 0.15  # 阈值：>0.15 疑似翻拍（改进后的阈值）
 
         logger.info("=== FFT 莫尔纹检测 ===")
         logger.info("  莫尔纹分数: %.4f", moire_score)
