@@ -85,12 +85,8 @@ class SilentLivenessDetector:
 
         # 提取防伪置信度
         anti_spoof_confidence = float(deepface_result.get("confidence", 0.0))
-        is_real_str = str(deepface_result.get("is_real", "False"))
-        is_real = is_real_str.lower() == "true"
+        is_real = deepface_result.get("dominant_printed", "Printed") == "Real"
 
-        # Step 3: 融合判定
-        # 综合 deepfake 检测 (real_prob) 和展示攻击检测 (anti_spoof_confidence)
-        # 展示攻击检测权重更高（更直接的防伪信号）
         final_confidence = 0.4 * real_prob + 0.6 * anti_spoof_confidence
         is_liveness = 1 if (is_real and final_confidence > 0.5) else 0
 
