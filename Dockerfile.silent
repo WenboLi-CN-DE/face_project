@@ -1,0 +1,57 @@
+# ── Stage 1: builder ─────────────────────────────────────────────────────
+# 安装编译期依赖（gcc/cmake 等），构建 wheel 包后丢弃此阶段
+FROM python:3.10-slim AS builder
+
+WORKDIR /build
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 安装编译依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    cmake \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-silent.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements-silent.txt
+
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────
+# 仅包含运行时库，不含编译工具链，镜像体积更小
+FROM python:3.10-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# 仅安装运行时系统依赖（OpenCV / TensorFlow 所需）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 从 builder 阶段拷贝预编译的 wheel 并安装
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links /wheels /wheels/*.whl \
+    && rm -rf /wheels
+
+# 仅拷贝静默活体检测相关代码
+COPY vrlFace/__init__.py /app/vrlFace/__init__.py
+COPY vrlFace/silent_liveness/ /app/vrlFace/silent_liveness/
+COPY vrlFace/apps/__init__.py /app/vrlFace/apps/__init__.py
+COPY vrlFace/apps/silent_app.py /app/vrlFace/apps/silent_app.py
+
+RUN mkdir -p /app/data /app/models
+
+EXPOSE 8060
+
+CMD ["uvicorn", "vrlFace.apps.silent_app:app", "--host", "0.0.0.0", "--port", "8060", "--workers", "2"]

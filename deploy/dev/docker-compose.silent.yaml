@@ -1,0 +1,21 @@
+services:
+  # ── 静默活体检测服务 ───────────────────────────────────────────
+  vrl-silent:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.silent
+    ports:
+      - "8060:8060"
+    command: uvicorn vrlFace.apps.silent_app:app --reload --host 0.0.0.0 --port 8060
+    volumes:
+      - ../..:/app
+      - /data/videos:/data/videos
+    env_file:
+      - .env
+    mem_limit: "4G"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8060/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s

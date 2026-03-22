@@ -39,15 +39,25 @@ case "$TARGET" in
     wait_healthy vrl-liveness 8071
     echo "📖 http://localhost:8071/docs"
     ;;
+  silent)
+    docker compose -f docker-compose.silent.yaml up -d
+    docker compose -f docker-compose.silent.yaml ps
+    wait_healthy vrl-silent 8060
+    echo "📖 http://localhost:8060/docs"
+    ;;
   all)
     docker compose up -d
+    docker compose -f docker-compose.silent.yaml up -d
     docker compose ps
+    docker compose -f docker-compose.silent.yaml ps
     wait_healthy vrl-face     8070
     wait_healthy vrl-liveness 8071
+    wait_healthy vrl-silent   8060
     echo "📖 http://localhost:8070/docs"
     echo "📖 http://localhost:8071/docs"
+    echo "📖 http://localhost:8060/docs"
     ;;
   *)
-    echo "用法：bash up.sh [face|liveness|all]"; exit 1
+    echo "用法：bash up.sh [face|liveness|silent|all]"; exit 1
     ;;
 esac

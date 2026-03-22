@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8070:8070"
-    command: uvicorn vrlFace.face_app:app --reload --host 0.0.0.0 --port 8070
+    command: uvicorn vrlFace.apps.face_app:app --reload --host 0.0.0.0 --port 8070
     volumes:
       - ../..:/app
       - ../../models:/app/models
@@ -28,7 +28,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8071:8071"
-    command: uvicorn vrlFace.liveness_app:app --reload --host 0.0.0.0 --port 8071
+    command: uvicorn vrlFace.apps.liveness_app:app --reload --host 0.0.0.0 --port 8071
     volumes:
       - ../..:/app
       - ../../models:/app/models

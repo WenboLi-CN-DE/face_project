@@ -36,6 +36,9 @@ dev = [
 gpu = [
     "onnxruntime-gpu>=1.16.0",
 ]
+silent = [
+    "deepface-antispoofing>=1.1.3",
+]
 api = [
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
@@ -55,8 +58,9 @@ Issues = "https://github.com/yourusername/face-verification/issues"
 face-verify = "vrlFace.face.cli:main"
 face-liveness = "vrlFace.liveness.cli:main"
 face-recorder = "vrlFace.liveness.recorder:main"
-face-server = "vrlFace.face_app:app"
-liveness-server = "vrlFace.liveness_app:app"
+face-server = "vrlFace.apps.face_app:app"
+liveness-server = "vrlFace.apps.liveness_app:app"
+silent-server = "vrlFace.apps.silent_app:app"
 
 [build-system]
 requires = ["setuptools>=65.0", "wheel"]

@@ -61,19 +61,31 @@ case "$TARGET" in
     wait_healthy vrl-liveness 8071
     echo "📖 活体检测文档：http://localhost:8071/docs"
     ;;
+  silent)
+    echo ">>> 启动静默活体检测服务 (8060)"
+    docker compose -f docker-compose.silent.yaml up -d --build
+    docker compose -f docker-compose.silent.yaml ps
+    wait_healthy vrl-silent 8060
+    echo "📖 静默活体文档：http://localhost:8060/docs"
+    ;;
   all)
-    echo ">>> 启动全部服务 (8070 + 8071)"
+    echo ">>> 启动全部服务 (8070 + 8071 + 8060)"
     docker compose up -d --build
+    docker compose -f docker-compose.silent.yaml up -d --build
     docker compose ps
+    docker compose -f docker-compose.silent.yaml ps
     wait_healthy vrl-face     8070
     wait_healthy vrl-liveness 8071
+    wait_healthy vrl-silent   8060
     echo "📖 人脸识别文档：http://localhost:8070/docs"
     echo "📖 活体检测文档：http://localhost:8071/docs"
+    echo "📖 静默活体文档：http://localhost:8060/docs"
     ;;
   *)
-    echo "用法：bash up.sh [face|liveness|all]"
+    echo "用法：bash up.sh [face|liveness|silent|all]"
     echo "  face     — 只启动人脸识别服务 (8070)"
     echo "  liveness — 只启动活体检测服务 (8071)"
+    echo "  silent   — 只启动静默活体检测服务 (8060)"
     echo "  all      — 启动全部服务（默认）"
     exit 1
     ;;
