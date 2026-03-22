@@ -20,6 +20,7 @@ import cv2
 from uniface.detection import RetinaFace
 from uniface.spoofing import MiniFASNet
 from .frequency_analyzer import FrequencyAnalyzer
+from .deep_detector import HeuristicDetector
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,10 @@ class SilentLivenessDetector:
         self._face_detector = RetinaFace()
         self._spoofer = MiniFASNet()
         self._frequency_analyzer = FrequencyAnalyzer.get_instance()
+        self._heuristic_detector = HeuristicDetector.get_instance()
         logger.info("UniFace 模型加载完成")
         logger.info("频域分析器初始化完成")
+        logger.info("启发式检测器初始化完成")
 
     @classmethod
     def get_instance(cls) -> "SilentLivenessDetector":
@@ -61,10 +64,11 @@ class SilentLivenessDetector:
                 "confidence": float,          # 综合置信度
                 "is_face_exist": 1/0,         # 是否检测到人脸
                 "face_exist_confidence": float,
-                "reject_reason": str | None,  # 拒绝原因：null/"traditional_spoof"/"ai_spoof"
+                "reject_reason": str | None,  # 拒绝原因：null/"traditional_spoof"/"ai_spoof"/"no_face"
                 "details": {
                     "uniface_passed": bool,   # UniFace 是否通过
-                    "ai_check_passed": bool,  # AI 检测是否通过
+                    "frequency_check_passed": bool,  # 频域分析是否通过
+                    "dl_check_passed": bool,  # 深度学习检测是否通过
                 }
             }
         """
@@ -134,40 +138,72 @@ class SilentLivenessDetector:
             # ===================================================================
             # Step 2: 频域分析（防 AI 生成图像）
             # ===================================================================
-            ai_result = self._frequency_analyzer.analyze(image, face.bbox)
+            # 将 bbox numpy 数组转换为 tuple
+            bbox_tuple = tuple(map(int, face.bbox))
+            frequency_result = self._frequency_analyzer.analyze(image, bbox_tuple)
 
             logger.info("=== 频域分析结果 ===")
-            logger.info("  is_ai_generated: %s", ai_result["is_ai_generated"])
-            logger.info("  anomaly_score: %.4f", ai_result["anomaly_score"])
-            logger.info("  confidence: %.4f", ai_result["confidence"])
+            logger.info("  is_ai_generated: %s", frequency_result["is_ai_generated"])
+            logger.info("  anomaly_score: %.4f", frequency_result["anomaly_score"])
+            logger.info("  confidence: %.4f", frequency_result["confidence"])
 
             # AI 检测失败 → AI 生成
-            if ai_result["is_ai_generated"]:
+            if frequency_result["is_ai_generated"]:
                 logger.warning(
                     "频域分析失败：AI 生成图像 path=%s anomaly_score=%.4f",
                     image_path,
-                    ai_result["anomaly_score"],
+                    frequency_result["anomaly_score"],
                 )
                 result["is_liveness"] = 0
-                result["confidence"] = round(float(ai_result["confidence"]), 4)
+                result["confidence"] = round(float(frequency_result["confidence"]), 4)
                 result["face_exist_confidence"] = round(
                     float(spoof_result.confidence), 4
                 )
                 result["reject_reason"] = "ai_spoof"
-                result["details"]["ai_check_passed"] = False
+                result["details"]["frequency_check_passed"] = False
+                result["details"]["dl_check_passed"] = True  # 未检测
                 return result
 
             # AI 检测通过
             logger.info("频域分析通过：path=%s", image_path)
-            result["details"]["ai_check_passed"] = True
+            result["details"]["frequency_check_passed"] = True
 
             # ===================================================================
-            # 两步都通过 → 真人
+            # Step 3: 启发式检测（增强 AI 检测，针对现代 Diffusion 模型）
             # ===================================================================
-            # 综合置信度：取两者的较小值（保守策略）
+            heuristic_result = self._heuristic_detector.detect(image, bbox_tuple)
+
+            logger.info("=== 启发式检测结果 ===")
+            logger.info("  is_ai_generated: %s", heuristic_result["is_ai_generated"])
+            logger.info("  anomaly_score: %.4f", heuristic_result["anomaly_score"])
+
+            if heuristic_result["is_ai_generated"]:
+                logger.warning(
+                    "启发式检测失败：AI 生成图像 path=%s anomaly_score=%.4f",
+                    image_path,
+                    heuristic_result["anomaly_score"],
+                )
+                result["is_liveness"] = 0
+                result["confidence"] = round(float(heuristic_result["confidence"]), 4)
+                result["face_exist_confidence"] = round(
+                    float(spoof_result.confidence), 4
+                )
+                result["reject_reason"] = "ai_spoof"
+                result["details"]["frequency_check_passed"] = True
+                result["details"]["heuristic_check_passed"] = False
+                return result
+
+            logger.info("启发式检测通过：path=%s", image_path)
+            result["details"]["heuristic_check_passed"] = True
+
+            # ===================================================================
+            # 三步都通过 → 真人
+            # ===================================================================
+            # 综合置信度：取三者的较小值（保守策略）
             final_confidence = min(
                 float(spoof_result.confidence),
-                float(ai_result["confidence"]),
+                float(frequency_result["confidence"]),
+                float(heuristic_result["confidence"]),
             )
 
             result["is_liveness"] = 1

@@ -35,7 +35,7 @@ class LivenessResult(BaseModel):
     )
     details: Optional[Dict[str, bool]] = Field(
         default=None,
-        description="检测详情：{'uniface_passed': bool, 'ai_check_passed': bool}",
+        description="检测详情：{'uniface_passed': bool, 'frequency_check_passed': bool, 'heuristic_check_passed': bool}",
     )
 
 
