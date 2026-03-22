@@ -34,7 +34,7 @@ class SilentLivenessDetector:
 
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
-        执行静默活体检测（仅使用 analyze_deepface）
+        执行静默活体检测（仅使用 analyze_image）
 
         Args:
             image_path: 图片文件绝对路径
@@ -56,35 +56,36 @@ class SilentLivenessDetector:
         }
 
         try:
-            deepface_result = self._analyzer.analyze_deepface(image_path)
+            image_result = self._analyzer.analyze_image(image_path)
 
             # 详细日志：输出完整返回结果
-            logger.info("analyze_deepface 完整返回: %s", deepface_result)
+            logger.info("analyze_image 完整返回: %s", image_result)
 
-            # 提取结果
-            confidence = float(deepface_result.get("confidence", 0.0))
-            dominant_printed = deepface_result.get("dominant_printed", "Printed")
-            printed_analysis = deepface_result.get("printed_analysis", {})
-            is_real = dominant_printed == "Real"
+            # 检查是否检测到人脸
+            if not image_result or "age" not in image_result:
+                logger.info("未检测到人脸: %s", image_path)
+                return result
+
+            # 提取 spoof 分析结果
+            spoof_info = image_result.get("spoof", {})
+            real_prob = float(spoof_info.get("Real", 0.0))
 
             # 映射到业务字段
-            result["is_liveness"] = 1 if is_real else 0
-            result["confidence"] = round(confidence, 4)
-            result["is_face_exist"] = 1  # analyze_deepface 能返回说明检测到人脸
-            result["face_exist_confidence"] = round(confidence, 4)
+            result["is_liveness"] = 1 if real_prob > 0.5 else 0
+            result["confidence"] = round(real_prob, 4)
+            result["is_face_exist"] = 1
+            result["face_exist_confidence"] = round(real_prob, 4)
 
             logger.info(
-                "静默活体检测 path=%s is_liveness=%d confidence=%.4f "
-                "dominant=%s printed_analysis=%s",
+                "静默活体检测 path=%s is_liveness=%d confidence=%.4f spoof=%s",
                 image_path,
                 result["is_liveness"],
-                confidence,
-                dominant_printed,
-                printed_analysis,
+                real_prob,
+                spoof_info,
             )
 
             return result
 
         except Exception as e:
-            logger.error("analyze_deepface 失败: %s", str(e))
+            logger.error("analyze_image 失败: %s", str(e))
             return result
