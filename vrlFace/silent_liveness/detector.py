@@ -87,6 +87,12 @@ class SilentLivenessDetector:
         anti_spoof_confidence = float(deepface_result.get("confidence", 0.0))
         is_real = deepface_result.get("dominant_printed", "Printed") == "Real"
 
+        logger.info(
+            "analyze_deepface 原始返回: %s | analyze_image spoof: %s",
+            deepface_result,
+            spoof_info,
+        )
+
         final_confidence = 0.4 * real_prob + 0.6 * anti_spoof_confidence
         is_liveness = 1 if (is_real and final_confidence > 0.5) else 0
 
