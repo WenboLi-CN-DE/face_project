@@ -52,6 +52,9 @@ COPY . .
 
 RUN mkdir -p /app/logs /app/models /app/data
 
+# 预下载 InsightFace 模型（buffalo_l）
+RUN python -c "from insightface.app import FaceAnalysis; app = FaceAnalysis(name='buffalo_l'); app.prepare(ctx_id=-1, det_size=(640, 640))" || echo "InsightFace 模型下载失败，将在运行时下载"
+
 EXPOSE 8070 8071
 
 CMD ["uvicorn", "vrlFace.main_fastapi:app", "--host", "0.0.0.0", "--port", "8070", "--workers", "2"]
