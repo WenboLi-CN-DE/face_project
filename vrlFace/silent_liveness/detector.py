@@ -1,14 +1,16 @@
 """
 静默活体检测器 — DeepFaceAntiSpoofing 封装
 
-核心逻辑：双模型投票
+核心逻辑：三信号融合
 1. analyze_image() → 人脸检测 + Deepfake 检测（容忍度高）
 2. analyze_deepface() → 展示攻击检测（严格，防打印/翻拍）
-3. 两个模型都判断为真人才通过
+3. FFT 频域分析 → 莫尔纹检测（屏幕翻拍特征）
 """
 
 import logging
 from typing import Dict, Any
+import cv2
+import numpy as np
 
 from deepface_antispoofing import DeepFaceAntiSpoofing
 
@@ -31,6 +33,35 @@ class SilentLivenessDetector:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _detect_moire_fft(self, image_path: str) -> float:
+        """
+        FFT 频域检测莫尔纹
+
+        Returns:
+            moire_score: 莫尔纹分数，越高越可能是翻拍（>2.0 疑似翻拍）
+        """
+        try:
+            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                return 0.0
+
+            # FFT 变换
+            f_transform = np.fft.fft2(img)
+            f_shift = np.fft.fftshift(f_transform)
+            magnitude = np.abs(f_shift)
+
+            # 分析高频区域（莫尔纹主要在高频）
+            h, w = magnitude.shape
+            high_freq = magnitude[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
+
+            # 计算高频区域的标准差/均值比（莫尔纹会产生周期性峰值）
+            moire_score = np.std(high_freq) / (np.mean(high_freq) + 1e-6)
+
+            return float(moire_score)
+        except Exception as e:
+            logger.warning("莫尔纹检测失败: %s", str(e))
+            return 0.0
 
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
@@ -97,56 +128,73 @@ class SilentLivenessDetector:
             result["confidence"] = round(image_real_prob, 4)
             return result
 
-        # Step 3: 加权融合策略（参考原始融合逻辑）
+        # Step 3: FFT 莫尔纹检测
+        moire_score = self._detect_moire_fft(image_path)
+        has_moire = moire_score > 2.0  # 阈值：>2.0 疑似翻拍
+
+        logger.info("=== FFT 莫尔纹检测 ===")
+        logger.info("  莫尔纹分数: %.4f", moire_score)
+        logger.info("  是否检测到莫尔纹: %s", has_moire)
+
+        # Step 4: 三信号融合策略
         image_vote = image_real_prob > 0.5
         deepface_vote = deepface_real_prob > 0.5
 
-        # 检测模型严重冲突
-        severe_conflict = (image_real_prob >= 0.6 and deepface_real_prob < 0.15) or (
-            deepface_real_prob >= 0.6 and image_real_prob < 0.15
-        )
+        # 莫尔纹强制拒绝：如果检测到明显莫尔纹，直接判定为翻拍
+        if has_moire and image_real_prob > 0.9:
+            is_liveness = 0
+            final_confidence = 1.0 - (moire_score / 10.0)  # 转换为置信度
+            logger.warning(
+                "⚠️  莫尔纹强制拒绝：moire_score=%.4f，判定为翻拍",
+                moire_score,
+            )
+        else:
+            # 检测模型严重冲突
+            severe_conflict = (
+                image_real_prob >= 0.6 and deepface_real_prob < 0.15
+            ) or (deepface_real_prob >= 0.6 and image_real_prob < 0.15)
 
-        if severe_conflict:
-            # 严重冲突时：降低不可靠模型的权重
-            if image_real_prob >= 0.6 and deepface_real_prob < 0.15:
-                # image 确信真 + deepface 强烈认为假 → 可能是 deepface 误判
-                # 降低 deepface 权重
-                final_confidence = 0.7 * image_real_prob + 0.3 * deepface_real_prob
-                # 宽松阈值
+            if severe_conflict:
+                # 严重冲突时：降低不可靠模型的权重
+                if image_real_prob >= 0.6 and deepface_real_prob < 0.15:
+                    # image 确信真 + deepface 强烈认为假 → 可能是 deepface 误判
+                    # 降低 deepface 权重
+                    final_confidence = 0.7 * image_real_prob + 0.3 * deepface_real_prob
+                    # 宽松阈值
+                    is_liveness = (
+                        1
+                        if (
+                            final_confidence > 0.45
+                            or (image_real_prob > 0.75 and deepface_real_prob > 0.05)
+                        )
+                        else 0
+                    )
+                    logger.warning(
+                        "⚠️  冲突：image 确信真(%.4f) vs deepface 强烈假(%.4f)，降低 deepface 权重",
+                        image_real_prob,
+                        deepface_real_prob,
+                    )
+                else:
+                    # deepface 确信真 + image 强烈认为假 → 罕见情况，保守拒绝
+                    final_confidence = 0.5 * image_real_prob + 0.5 * deepface_real_prob
+                    is_liveness = 1 if final_confidence > 0.6 else 0
+                    logger.warning(
+                        "⚠️  冲突：deepface 确信真(%.4f) vs image 强烈假(%.4f)，保守判断",
+                        deepface_real_prob,
+                        image_real_prob,
+                    )
+            else:
+                # 无严重冲突：标准加权融合
+                final_confidence = 0.4 * image_real_prob + 0.6 * deepface_real_prob
                 is_liveness = (
                     1
                     if (
-                        final_confidence > 0.45
-                        or (image_real_prob > 0.75 and deepface_real_prob > 0.05)
+                        final_confidence > 0.55
+                        or (image_real_prob > 0.85 and deepface_real_prob > 0.2)
+                        or (image_real_prob > 0.65 and deepface_real_prob > 0.5)
                     )
                     else 0
                 )
-                logger.warning(
-                    "⚠️  冲突：image 确信真(%.4f) vs deepface 强烈假(%.4f)，降低 deepface 权重",
-                    image_real_prob,
-                    deepface_real_prob,
-                )
-            else:
-                # deepface 确信真 + image 强烈认为假 → 罕见情况，保守拒绝
-                final_confidence = 0.5 * image_real_prob + 0.5 * deepface_real_prob
-                is_liveness = 1 if final_confidence > 0.6 else 0
-                logger.warning(
-                    "⚠️  冲突：deepface 确信真(%.4f) vs image 强烈假(%.4f)，保守判断",
-                    deepface_real_prob,
-                    image_real_prob,
-                )
-        else:
-            # 无严重冲突：标准加权融合
-            final_confidence = 0.4 * image_real_prob + 0.6 * deepface_real_prob
-            is_liveness = (
-                1
-                if (
-                    final_confidence > 0.55
-                    or (image_real_prob > 0.85 and deepface_real_prob > 0.2)
-                    or (image_real_prob > 0.65 and deepface_real_prob > 0.5)
-                )
-                else 0
-            )
 
         result["is_liveness"] = is_liveness
         result["confidence"] = round(final_confidence, 4)
