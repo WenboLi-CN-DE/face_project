@@ -96,21 +96,37 @@ class SilentLivenessDetector:
         )
 
         # 加权融合置信度
-        final_confidence = 0.4 * real_prob + 0.6 * printed_real_prob
+        # 问题：当 printed 模型强烈误判时（printed_real_prob 极低），
+        # 0.6 的权重会导致融合分数被拉低，保护条件也难以触发
+        # 解决：冲突时降低 printed 权重，并放宽保护条件
 
-        # 方案 B: 加权融合 + 单项保护（处理模型结果不一致）
-        # 通过条件：
-        # 1. 融合分数高 (>0.55)
-        # 2. 或两个模型都 moderately 确信 (避免单一模型失误)
-        is_liveness = (
-            1
-            if (
-                final_confidence > 0.55
-                or (real_prob > 0.9 and printed_real_prob > 0.3)
-                or (real_prob > 0.7 and printed_real_prob > 0.6)
+        # 检测模型冲突：analyze_image 认为是真人，但 printed 强烈认为是 Spoof
+        model_conflict = real_prob >= 0.6 and printed_real_prob < 0.15
+
+        if model_conflict:
+            # 冲突时降低 printed 权重到 0.3，更相信 analyze_image
+            final_confidence = 0.7 * real_prob + 0.3 * printed_real_prob
+            # 冲突时使用更宽松的阈值
+            is_liveness = (
+                1
+                if (
+                    final_confidence > 0.45
+                    or (real_prob > 0.75 and printed_real_prob > 0.05)
+                )
+                else 0
             )
-            else 0
-        )
+        else:
+            # 正常情况：标准加权融合
+            final_confidence = 0.4 * real_prob + 0.6 * printed_real_prob
+            is_liveness = (
+                1
+                if (
+                    final_confidence > 0.55
+                    or (real_prob > 0.85 and printed_real_prob > 0.2)
+                    or (real_prob > 0.65 and printed_real_prob > 0.5)
+                )
+                else 0
+            )
 
         result["is_liveness"] = is_liveness
         result["confidence"] = round(final_confidence, 4)
