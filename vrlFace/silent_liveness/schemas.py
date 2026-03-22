@@ -2,7 +2,7 @@
 静默活体检测 API 的请求与响应 Pydantic 模型
 """
 
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
 
@@ -29,6 +29,14 @@ class LivenessResult(BaseModel):
     confidence: float = Field(description="活体置信度 (0-1)")
     is_face_exist: int = Field(description="是否检测到人脸：1=是，0=否")
     face_exist_confidence: float = Field(description="人脸检测置信度 (0-1)")
+    reject_reason: Optional[str] = Field(
+        default=None,
+        description="拒绝原因：null=通过，'no_face'=无人脸，'traditional_spoof'=传统攻击，'ai_spoof'=AI 生成",
+    )
+    details: Optional[Dict[str, bool]] = Field(
+        default=None,
+        description="检测详情：{'uniface_passed': bool, 'ai_check_passed': bool}",
+    )
 
 
 class SilentLivenessResponse(BaseModel):

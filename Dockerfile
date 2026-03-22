@@ -52,6 +52,6 @@ COPY . .
 
 RUN mkdir -p /app/logs /app/models /app/data
 
-EXPOSE 8070
+EXPOSE 8070 8071
 
 CMD ["uvicorn", "vrlFace.main_fastapi:app", "--host", "0.0.0.0", "--port", "8070", "--workers", "2"]
