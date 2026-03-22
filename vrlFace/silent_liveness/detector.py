@@ -41,51 +41,43 @@ class SilentLivenessDetector:
 
         Returns:
             {
-                "success": "True"/"False",
-                "is_real": "True"/"False",
+                "is_liveness": 1/0,
                 "confidence": float,
-                "spoof_type": str,
-                "processing_time": float,
+                "is_face_exist": 1/0,
+                "face_exist_confidence": float,
             }
         """
-        import time
-
-        start_time = time.time()
+        # 默认结果（检测失败）
+        result: Dict[str, Any] = {
+            "is_liveness": 0,
+            "confidence": 0.0,
+            "is_face_exist": 0,
+            "face_exist_confidence": 0.0,
+        }
 
         try:
             deepface_result = self._analyzer.analyze_deepface(image_path)
-            processing_time = round(time.time() - start_time, 2)
 
             # 提取结果
             confidence = float(deepface_result.get("confidence", 0.0))
             dominant_printed = deepface_result.get("dominant_printed", "Printed")
             is_real = dominant_printed == "Real"
 
-            result = {
-                "success": "True",
-                "is_real": "True" if is_real else "False",
-                "confidence": round(confidence, 2),
-                "spoof_type": "Real Face" if is_real else "Spoof",
-                "processing_time": processing_time,
-            }
+            # 映射到业务字段
+            result["is_liveness"] = 1 if is_real else 0
+            result["confidence"] = round(confidence, 4)
+            result["is_face_exist"] = 1  # analyze_deepface 能返回说明检测到人脸
+            result["face_exist_confidence"] = round(confidence, 4)
 
             logger.info(
-                "静默活体检测 path=%s is_real=%s confidence=%.2f time=%.2fs",
+                "静默活体检测 path=%s is_liveness=%d confidence=%.4f",
                 image_path,
-                result["is_real"],
+                result["is_liveness"],
                 confidence,
-                processing_time,
             )
 
             return result
 
         except Exception as e:
-            processing_time = round(time.time() - start_time, 2)
             logger.error("analyze_deepface 失败: %s", str(e))
-            return {
-                "success": "False",
-                "is_real": "False",
-                "confidence": 0.0,
-                "spoof_type": "Error",
-                "processing_time": processing_time,
-            }
+            return result

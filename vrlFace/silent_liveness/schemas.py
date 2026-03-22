@@ -25,11 +25,10 @@ class SilentLivenessRequest(BaseModel):
 class LivenessResult(BaseModel):
     """活体检测结果"""
 
-    success: str = Field(description="检测是否成功：True/False")
-    is_real: str = Field(description="是否真人：True/False")
-    confidence: float = Field(description="置信度 (0-1)")
-    spoof_type: str = Field(description="类型：Real Face/Spoof/Error")
-    processing_time: float = Field(description="处理耗时（秒）")
+    is_liveness: int = Field(description="活体判定：1=真人，0=伪造")
+    confidence: float = Field(description="活体置信度 (0-1)")
+    is_face_exist: int = Field(description="是否检测到人脸：1=是，0=否")
+    face_exist_confidence: float = Field(description="人脸检测置信度 (0-1)")
 
 
 class SilentLivenessResponse(BaseModel):
