@@ -107,14 +107,32 @@ class SilentLivenessDetector:
         )
 
         if strong_conflict:
-            # 冲突时：更相信 analyze_deepface（专门防翻拍）
-            is_liveness = 1 if deepface_vote else 0
-            final_confidence = deepface_real_prob
-            logger.warning(
-                "⚠️  模型冲突检测：image=%.4f vs deepface=%.4f，采用 deepface 判断",
-                image_real_prob,
-                deepface_real_prob,
-            )
+            # 冲突时的决策逻辑
+            if image_real_prob > 0.95 and deepface_real_prob < 0.3:
+                # analyze_image 极度确信是真人 → 信任它（可能是图片质量问题导致 deepface 误判）
+                is_liveness = 1
+                final_confidence = image_real_prob
+                logger.warning(
+                    "⚠️  模型冲突：image 极度确信(%.4f)，采用 image 判断",
+                    image_real_prob,
+                )
+            elif deepface_real_prob < 0.05 and image_real_prob > 0.9:
+                # deepface 极度确信是假 + image 确信是真 → 可能是翻拍，信任 deepface
+                is_liveness = 0
+                final_confidence = deepface_real_prob
+                logger.warning(
+                    "⚠️  模型冲突：deepface 极度确信假(%.4f)，采用 deepface 判断（疑似翻拍）",
+                    deepface_real_prob,
+                )
+            else:
+                # 其他冲突情况：更相信 deepface（防翻拍专家）
+                is_liveness = 1 if deepface_vote else 0
+                final_confidence = deepface_real_prob
+                logger.warning(
+                    "⚠️  模型冲突：image=%.4f vs deepface=%.4f，采用 deepface 判断",
+                    image_real_prob,
+                    deepface_real_prob,
+                )
         else:
             # 无冲突：OR 逻辑（只要一个说真人就通过）
             is_liveness = 1 if (image_vote or deepface_vote) else 0
