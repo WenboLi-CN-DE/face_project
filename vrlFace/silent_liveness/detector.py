@@ -72,6 +72,11 @@ class SilentLivenessDetector:
         result["is_face_exist"] = 1
         result["face_exist_confidence"] = round(image_real_prob, 4)
 
+        logger.info("=== analyze_image 结果 ===")
+        logger.info("  完整返回: %s", image_result)
+        logger.info("  spoof 分析: %s", spoof_info)
+        logger.info("  Real 概率: %.4f", image_real_prob)
+
         # Step 2: analyze_deepface（严格，防打印/翻拍）
         try:
             deepface_result = self._analyzer.analyze_deepface(image_path)
@@ -79,6 +84,12 @@ class SilentLivenessDetector:
             printed_analysis = deepface_result.get("printed_analysis", {})
             deepface_real_prob = float(printed_analysis.get("Real", 0.0))
             deepface_vote = dominant_printed == "Real"
+
+            logger.info("=== analyze_deepface 结果 ===")
+            logger.info("  完整返回: %s", deepface_result)
+            logger.info("  printed_analysis: %s", printed_analysis)
+            logger.info("  dominant_printed: %s", dominant_printed)
+            logger.info("  Real 概率: %.4f", deepface_real_prob)
         except Exception as e:
             logger.warning("analyze_deepface 失败，仅用 analyze_image 兜底: %s", str(e))
             # 兜底：仅用 analyze_image
@@ -98,16 +109,13 @@ class SilentLivenessDetector:
         result["is_liveness"] = is_liveness
         result["confidence"] = round(final_confidence, 4)
 
+        logger.info("=== 最终判定 ===")
+        logger.info("  文件: %s", image_path)
+        logger.info("  image_vote: %s (Real=%.4f)", image_vote, image_real_prob)
         logger.info(
-            "静默活体检测 path=%s is_liveness=%d confidence=%.4f "
-            "image_vote=%s(%.4f) deepface_vote=%s(%.4f)",
-            image_path,
-            is_liveness,
-            final_confidence,
-            image_vote,
-            image_real_prob,
-            deepface_vote,
-            deepface_real_prob,
+            "  deepface_vote: %s (Real=%.4f)", deepface_vote, deepface_real_prob
         )
+        logger.info("  is_liveness: %d", is_liveness)
+        logger.info("  confidence: %.4f", final_confidence)
 
         return result
