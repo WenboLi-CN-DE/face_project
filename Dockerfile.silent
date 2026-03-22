@@ -47,8 +47,8 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links /wheels /wheels/*.whl \
     && rm -rf /wheels
 
-# 预下载 DeepFaceAntiSpoofing 模型，避免首次请求时下载
-RUN python3 -c "from deepface_antispoofing import DeepFaceAntiSpoofing; print('预下载模型...'); DeepFaceAntiSpoofing(); print('模型下载完成')"
+# 预下载 UniFace 模型，避免首次请求时下载
+RUN python3 -c "from uniface import AntiSpoofing; print('预下载模型...'); AntiSpoofing(model_name='minifasnet_v2'); print('模型下载完成')"
 
 # 仅拷贝静默活体检测相关代码
 COPY vrlFace/__init__.py /app/vrlFace/__init__.py
