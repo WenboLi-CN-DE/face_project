@@ -172,6 +172,22 @@ curl -X POST http://localhost:8060/vrlSilentLiveness \
   -d '{"picture_path": "/data/videos/test.jpg"}'
 ```
 
+**多路径支持**（远程服务器调用）：
+
+```bash
+# 远程服务器路径 /opt/test -> 容器内 /data/videos
+curl -X POST http://localhost:8060/vrlSilentLiveness \
+  -H "Content-Type: application/json" \
+  -d '{"picture_path": "/opt/test/test.jpg"}'
+
+# 远程服务器路径 /opt/test2026 -> 容器内 /data/videos
+curl -X POST http://localhost:8060/vrlSilentLiveness \
+  -H "Content-Type: application/json" \
+  -d '{"picture_path": "/opt/test2026/test.jpg"}'
+```
+
+> **配置说明**: 路径映射通过环境变量 `SILENT_PICTURE_PATHS` 配置，见下文"静默活体多路径配置"。
+
 响应示例：
 
 ```json
@@ -202,7 +218,66 @@ curl -X POST http://localhost:8060/vrlSilentLiveness \
 |------|------|---------|
 | `models/` | InsightFace + MediaPipe 模型 | face, liveness |
 | `data/` | 人脸库数据集 | face |
-| `/data/videos` | 视频/图片文件（宿主机路径） | liveness, silent |
+| `/data/videos` | 视频/图片 文件（宿主机路径） | liveness, silent |
+
+---
+
+## 静默活体多路径配置
+
+静默活体检测支持**多路径映射**，允许不同环境的客户端使用各自熟悉的路径调用 API。
+
+### 使用场景
+
+- **本地开发**: 客户端传入 `/data/videos/test.jpg`
+- **远程服务器**: 客户端传入 `/opt/test/test.jpg` 或 `/opt/test2026/test.jpg`
+- **API 自动映射**: 所有路径统一映射到容器内 `/data/videos/test.jpg`
+
+### 环境变量配置
+
+在 `deploy/{dev|tra|pro}/.env` 中配置：
+
+```bash
+# 路径映射：外部路径=内部路径，多个用分号分隔
+SILENT_PICTURE_PATHS=/opt/test=/data/videos;/opt/test2026=/data/videos
+
+# 允许的路径前缀（安全限制）
+SILENT_ALLOWED_PATH_PREFIXES=/data/videos,/opt/test,/opt/test2026
+```
+
+### 工作原理
+
+```
+客户端请求                        API 处理                        容器内文件
+────────────                     ────────────                    ────────────
+picture_path=/opt/test/a.jpg  →  路径映射                     →  /data/videos/a.jpg
+                                 前缀校验
+                                 文件存在检查
+```
+
+### 安全限制
+
+- 只允许配置了前缀的路径被访问（防止路径遍历攻击）
+- 未授权路径返回 400 错误：`不允许的路径前缀：/etc/passwd`
+
+### 新增路径映射
+
+如需支持新的远程路径，例如 `/remote/data`：
+
+```bash
+# 1. 编辑 .env
+SILENT_PICTURE_PATHS=/opt/test=/data/videos;/opt/test2026=/data/videos;/remote/data=/data/videos
+SILENT_ALLOWED_PATH_PREFIXES=/data/videos,/opt/test,/opt/test2026,/remote/data
+
+# 2. 重启服务
+cd deploy/pro && bash down.sh silent && bash up.sh silent
+```
+
+### 测试
+
+```bash
+# 使用测试脚本验证配置
+uv run python scripts/manual_tests/test_silent_multipath.py
+```
 
 ## 项目结构（部署相关）
 
