@@ -58,9 +58,13 @@ class SilentLivenessDetector:
         try:
             deepface_result = self._analyzer.analyze_deepface(image_path)
 
+            # 详细日志：输出完整返回结果
+            logger.info("analyze_deepface 完整返回: %s", deepface_result)
+
             # 提取结果
             confidence = float(deepface_result.get("confidence", 0.0))
             dominant_printed = deepface_result.get("dominant_printed", "Printed")
+            printed_analysis = deepface_result.get("printed_analysis", {})
             is_real = dominant_printed == "Real"
 
             # 映射到业务字段
@@ -70,10 +74,13 @@ class SilentLivenessDetector:
             result["face_exist_confidence"] = round(confidence, 4)
 
             logger.info(
-                "静默活体检测 path=%s is_liveness=%d confidence=%.4f",
+                "静默活体检测 path=%s is_liveness=%d confidence=%.4f "
+                "dominant=%s printed_analysis=%s",
                 image_path,
                 result["is_liveness"],
                 confidence,
+                dominant_printed,
+                printed_analysis,
             )
 
             return result
