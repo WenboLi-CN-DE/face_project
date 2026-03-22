@@ -25,8 +25,11 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# 禁用 TensorFlow GPU，避免 CUDA 初始化报错
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TF_CPP_MIN_LOG_LEVEL=2 \
+    CUDA_VISIBLE_DEVICES=-1
 
 # 仅安装运行时系统依赖（OpenCV / TensorFlow 所需）
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -43,6 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links /wheels /wheels/*.whl \
     && rm -rf /wheels
+
+# 预下载 DeepFaceAntiSpoofing 模型，避免首次请求时下载
+RUN python3 -c "from deepface_antispoofing import DeepFaceAntiSpoofing; print('预下载模型...'); DeepFaceAntiSpoofing(); print('模型下载完成')"
 
 # 仅拷贝静默活体检测相关代码
 COPY vrlFace/__init__.py /app/vrlFace/__init__.py
