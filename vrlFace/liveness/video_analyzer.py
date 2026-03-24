@@ -646,6 +646,79 @@ class VideoLivenessAnalyzer:
             ),
         )
 
+    def _run_silent_detection(self, video_path: str) -> Dict[str, Any]:
+        """执行静默检测"""
+        import tempfile
+        import os
+
+        logger.info("开始静默检测：采样关键帧...")
+
+        keyframes = self._frame_sampler.sample_keyframes(
+            video_path,
+            num_frames=self.config.silent_sample_frames,
+            min_quality=self.config.silent_min_quality,
+            max_angle=self.config.silent_max_angle,
+        )
+
+        if not keyframes:
+            return {
+                "passed": False,
+                "confidence": 0.0,
+                "reject_reason": "no_quality_frames",
+                "details": {},
+            }
+
+        results = []
+        for i, frame in enumerate(keyframes):
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+                temp_path = tmp_file.name
+                cv2.imwrite(temp_path, frame)
+
+            try:
+                result = self._silent_detector.detect(temp_path)
+                results.append(result)
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+        passed = all(r["is_liveness"] == 1 for r in results)
+        avg_confidence = sum(r["confidence"] for r in results) / len(results)
+
+        reject_reason = None
+        if not passed:
+            for r in results:
+                if r["reject_reason"]:
+                    reject_reason = r["reject_reason"]
+                    break
+
+        return {
+            "passed": passed,
+            "confidence": avg_confidence,
+            "reject_reason": reject_reason,
+            "details": {"sampled_frames": len(keyframes), "frame_results": results},
+        }
+
+    def _build_reject_result(
+        self, silent_result: Dict[str, Any]
+    ) -> VideoLivenessResult:
+        """构建静默检测拒绝结果"""
+        return VideoLivenessResult(
+            is_liveness=0,
+            liveness_confidence=0.0,
+            reject_reason=silent_result["reject_reason"],
+            is_face_exist=1,
+            face_info=FaceInfo(confidence=0.0, quality_score=0.0),
+            action_verify=ActionVerifyResult(
+                passed=False, required_actions=[], action_details=[]
+            ),
+            silent_detection={
+                "enabled": True,
+                "passed": False,
+                "confidence": silent_result["confidence"],
+                "details": silent_result["details"],
+            },
+        )
+
 
 def _action_cn(action: str) -> str:
     """动作英文 → 中文说明"""
