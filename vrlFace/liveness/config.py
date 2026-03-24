@@ -48,6 +48,14 @@ class LivenessConfig:
     embedding_threshold: float = 0.55  # embedding 相似度阈值
     enable_threshold_calibration: bool = False  # 是否启用阈值校准
 
+    # 静默检测配置
+    enable_silent_detection: bool = False
+    silent_detection_mode: str = "strict"  # "strict" 或 "loose"
+    silent_sample_frames: int = 5
+    silent_min_quality: float = 0.6
+    silent_max_angle: float = 15.0
+    silent_detection_timeout: float = 5.0
+
     def validate(self) -> bool:
         errors = []
         if not (0.0 <= self.threshold <= 1.0):
@@ -172,6 +180,41 @@ class LivenessConfig:
             "window_size": 15,
             "action_confirm_frames": 3,
         }
+
+    @classmethod
+    def video_anti_spoofing_with_silent_config(cls) -> "LivenessConfig":
+        """视频防伪模式（含静默检测）"""
+        config = cls.video_anti_spoofing_config()
+        config.enable_silent_detection = True
+        config.silent_detection_mode = "strict"
+        config.silent_sample_frames = 5
+        config.silent_min_quality = 0.6
+        config.silent_max_angle = 15.0
+        config.silent_detection_timeout = 5.0
+        return config
+
+    @classmethod
+    def from_env(cls) -> "LivenessConfig":
+        """从环境变量加载配置"""
+        import os
+
+        config = cls.realtime_config()
+
+        if os.getenv("LIVENESS_ENABLE_SILENT", "").lower() == "true":
+            config.enable_silent_detection = True
+        config.silent_detection_mode = os.getenv("LIVENESS_SILENT_MODE", "strict")
+        config.silent_sample_frames = int(
+            os.getenv("LIVENESS_SILENT_SAMPLE_FRAMES", "5")
+        )
+        config.silent_min_quality = float(
+            os.getenv("LIVENESS_SILENT_MIN_QUALITY", "0.6")
+        )
+        config.silent_max_angle = float(os.getenv("LIVENESS_SILENT_MAX_ANGLE", "15.0"))
+        config.silent_detection_timeout = float(
+            os.getenv("LIVENESS_SILENT_TIMEOUT", "5.0")
+        )
+
+        return config
 
 
 @dataclass
