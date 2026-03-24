@@ -124,10 +124,11 @@ class LivenessConfig:
     
     # ========== 静默检测配置（新增） ==========
     enable_silent_detection: bool = False  # 是否启用静默检测
-    silent_detection_mode: str = "strict"  # "strict"=立即拒绝, "loose"=降低置信度
+    silent_detection_mode: str = "strict"  # "strict"=立即拒绝, "loose"=降低置信度（乘以 0.8）
     silent_sample_frames: int = 5  # 采样帧数（3-5 帧）
     silent_min_quality: float = 0.6  # 采样帧最低质量要求
     silent_max_angle: float = 15.0  # 采样帧最大人脸角度（度）
+    silent_detection_timeout: float = 5.0  # 静默检测超时时间（秒）
 ```
 
 **新增配置预设**：
@@ -242,8 +243,9 @@ def analyze(
     
     # ========== Step 3: 综合判定 ==========
     # 如果是宽松模式，将静默检测结果纳入综合判定
-    if self.config.silent_detection_mode == "loose" and silent_result:
-        final_confidence *= silent_result["confidence"]
+    if self.config.silent_detection_mode == "loose" and silent_result and not silent_result["passed"]:
+        # 宽松模式：降低置信度（乘以 0.8）
+        final_confidence *= 0.8
     
     return VideoLivenessResult(...)
 ```
@@ -284,17 +286,22 @@ def _run_silent_detection(self, video_path: str) -> Dict[str, Any]:
     
     # 对每一帧执行静默检测
     results = []
+    import tempfile
+    
     for i, frame in enumerate(keyframes):
-        # 保存临时图片
-        temp_path = f"/tmp/keyframe_{i}.jpg"
-        cv2.imwrite(temp_path, frame)
+        # 使用临时文件（跨平台兼容）
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+            temp_path = tmp_file.name
+            cv2.imwrite(temp_path, frame)
         
-        # 调用静默检测器
-        result = self._silent_detector.detect(temp_path)
-        results.append(result)
-        
-        # 清理临时文件
-        os.remove(temp_path)
+        try:
+            # 调用静默检测器
+            result = self._silent_detector.detect(temp_path)
+            results.append(result)
+        finally:
+            # 清理临时文件
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
     
     # 综合判定：任意一帧检测失败 → 整体失败
     passed = all(r["is_liveness"] == 1 for r in results)
@@ -317,6 +324,35 @@ def _run_silent_detection(self, video_path: str) -> Dict[str, Any]:
             "frame_results": results
         }
     }
+
+def _build_reject_result(self, silent_result: Dict[str, Any]) -> VideoLivenessResult:
+    """
+    构建静默检测拒绝结果
+    
+    Args:
+        silent_result: 静默检测结果字典
+        
+    Returns:
+        VideoLivenessResult: 拒绝结果
+    """
+    return VideoLivenessResult(
+        is_liveness=0,
+        liveness_confidence=0.0,
+        reject_reason=silent_result["reject_reason"],
+        is_face_exist=1,  # 已采样到人脸帧
+        face_info=FaceInfo(confidence=0.0, quality_score=0.0),
+        action_verify=ActionVerifyResult(
+            passed=False,
+            required_actions=[],
+            action_details=[]
+        ),
+        silent_detection={
+            "enabled": True,
+            "passed": False,
+            "confidence": silent_result["confidence"],
+            "details": silent_result["details"]
+        }
+    )
 ```
 
 ### 3.4 API 响应扩展
@@ -400,8 +436,24 @@ uniface>=3.1.0
 **Dockerfile 修改**（生产环境）：
 
 ```dockerfile
-# 预下载 UniFace 模型
-RUN python -c "from uniface.detection import RetinaFace; from uniface.spoofing import MiniFASNet; RetinaFace(); MiniFASNet()"
+# 预下载 UniFace 模型（带错误处理）
+RUN python -c "\
+import sys; \
+try: \
+    from uniface.detection import RetinaFace; \
+    from uniface.spoofing import MiniFASNet; \
+    print('Downloading RetinaFace model...'); \
+    RetinaFace(); \
+    print('Downloading MiniFASNet model...'); \
+    MiniFASNet(); \
+    print('Models downloaded successfully'); \
+except Exception as e: \
+    print(f'Model download failed: {e}', file=sys.stderr); \
+    sys.exit(1); \
+" || (echo "Failed to download UniFace models. Check network connectivity." && exit 1)
+
+# 验证模型已下载
+RUN test -d /root/.uniface || (echo "UniFace models directory not found" && exit 1)
 ```
 
 ---
@@ -605,8 +657,8 @@ def test_silent_detection_performance():
 
 - [UniFace 文档](https://github.com/serengil/uniface)
 - [Fighting Deepfakes by Detecting GAN DCT Anomalies (2021)](https://arxiv.org/abs/2103.08364)
-- [Generalizable Deepfake Detection via Frequency Masking (2024)](https://arxiv.org/abs/2401.12345)
-- [DiffusionArtifacts: Detecting Diffusion Model Forgeries (2024)](https://arxiv.org/abs/2402.12345)
+- Generalizable Deepfake Detection via Frequency Masking (2024) - 占位符，待补充真实论文链接
+- DiffusionArtifacts: Detecting Diffusion Model Forgeries (2024) - 占位符，待补充真实论文链接
 
 ### 11.2 术语表
 
