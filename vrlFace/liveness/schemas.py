@@ -2,7 +2,7 @@
 活体检测 API 的请求与响应 Pydantic 模型
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -100,6 +100,8 @@ class LivenessCallbackData(BaseModel):
     is_face_exist: int = Field(description="是否检测到人脸：1=是，0=否")
     face_info: Optional[FaceInfoResponse] = None
     action_verify: ActionVerifyResponse
+    reject_reason: Optional[str] = None
+    silent_detection: Optional[Dict[str, Any]] = None
 
 
 class LivenessCallbackRequest(BaseModel):
