@@ -120,6 +120,19 @@ class VideoLivenessAnalyzer:
         self.enable_benchmark = enable_benchmark
         self.benchmark_config = benchmark_config
 
+        self._silent_detector = None
+        self._frame_sampler = None
+
+        if self.liveness_config.enable_silent_detection:
+            from vrlFace.silent_liveness import SilentLivenessDetector
+            from .frame_sampler import FrameSampler
+
+            self._silent_detector = SilentLivenessDetector.get_instance()
+            self._frame_sampler = FrameSampler()
+            logger.info(
+                "静默检测已启用（模式：%s）", self.liveness_config.silent_detection_mode
+            )
+
     # ------------------------------------------------------------------
     # 主入口
     # ------------------------------------------------------------------
