@@ -49,6 +49,7 @@ from vrlFace.liveness import LivenessConfig
 LivenessConfig.cpu_fast_config()           # CPU 快速模式
 LivenessConfig.realtime_config()           # 实时摄像头模式
 LivenessConfig.video_anti_spoofing_config()# 视频防伪模式
+LivenessConfig.video_anti_spoofing_with_silent_config()  # 视频防伪+静默检测
 LivenessConfig.video_fast_config()         # 视频快速模式
 ```
 
@@ -221,6 +222,7 @@ uv run python -m vrlFace.liveness.recorder --video video.mp4
 
 ## 最近变更
 
+- **静默检测集成**: 支持 AI 生成视频和手机播放攻击检测
 - **阈值自动调整**: 支持根据场景自动调整检测阈值
 - **基准帧校准**: 防替换攻击，动态采集基准帧
 - **头部动作优化**: 从基线追踪改为峰峰值检测
