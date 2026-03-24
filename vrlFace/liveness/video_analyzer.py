@@ -80,6 +80,8 @@ class VideoLivenessResult:
         None  # 基准帧验证结果（1=通过，0=失败，None=未启用）
     )
     benchmark_details: Optional[Dict[str, Any]] = None  # 基准帧详细信息
+    silent_detection: Optional[Dict[str, Any]] = None  # 静默检测结果
+    reject_reason: Optional[str] = None  # 拒绝原因
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,18 @@ class VideoLivenessAnalyzer:
         """
         logger.info(f"开始分析视频: {video_path}")
         logger.info(f"要求动作: {actions}")
+
+        # 静默检测（如果启用）
+        silent_result = None
+        if self.liveness_config.enable_silent_detection:
+            silent_result = self._run_silent_detection(video_path)
+
+            # 严格模式：检测失败立即返回
+            if (
+                self.liveness_config.silent_detection_mode == "strict"
+                and not silent_result["passed"]
+            ):
+                return self._build_reject_result(silent_result)
 
         # 初始化旋转处理器
         rotation_handler = None
@@ -257,6 +271,7 @@ class VideoLivenessAnalyzer:
             frames_per_action=frames_per_action,
             benchmark_frames=benchmark_frames,
             rotation_handler=rotation_handler,
+            silent_result=silent_result,
         )
 
     # ------------------------------------------------------------------
@@ -272,6 +287,7 @@ class VideoLivenessAnalyzer:
         frames_per_action: int,
         benchmark_frames: int,
         rotation_handler: Optional[RotationHandler] = None,
+        silent_result: Optional[Dict[str, Any]] = None,
     ) -> VideoLivenessResult:
         """逐帧推理，同时收集全局活体分数和每动作事件。
 
@@ -613,9 +629,18 @@ class VideoLivenessAnalyzer:
                     "reason": "未能采集到足够的基准帧",
                 }
 
+        # 宽松模式：降低置信度
+        final_confidence = liveness_confidence
+        if (
+            self.liveness_config.silent_detection_mode == "loose"
+            and silent_result
+            and not silent_result["passed"]
+        ):
+            final_confidence *= 0.8
+
         return VideoLivenessResult(
             is_liveness=is_liveness,
-            liveness_confidence=liveness_confidence,
+            liveness_confidence=final_confidence,
             is_face_exist=is_face_exist,
             face_info=face_info,
             action_verify=action_verify,
@@ -623,6 +648,14 @@ class VideoLivenessAnalyzer:
             if benchmark_verified
             else (0 if benchmark_verified is False else None),
             benchmark_details=benchmark_details,
+            silent_detection={
+                "enabled": self.liveness_config.enable_silent_detection,
+                "passed": silent_result["passed"] if silent_result else None,
+                "confidence": silent_result["confidence"] if silent_result else None,
+                "details": silent_result["details"] if silent_result else None,
+            }
+            if silent_result
+            else None,
         )
 
     # ------------------------------------------------------------------
@@ -655,9 +688,9 @@ class VideoLivenessAnalyzer:
 
         keyframes = self._frame_sampler.sample_keyframes(
             video_path,
-            num_frames=self.config.silent_sample_frames,
-            min_quality=self.config.silent_min_quality,
-            max_angle=self.config.silent_max_angle,
+            num_frames=self.liveness_config.silent_sample_frames,
+            min_quality=self.liveness_config.silent_min_quality,
+            max_angle=self.liveness_config.silent_max_angle,
         )
 
         if not keyframes:
