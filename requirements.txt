@@ -31,3 +31,6 @@ mypy>=1.5.0
 # 可选：GPU 支持（与 onnxruntime 二选一）
 # onnxruntime-gpu>=1.16.0
 
+# 静默活体检测
+uniface>=3.1.0
+
