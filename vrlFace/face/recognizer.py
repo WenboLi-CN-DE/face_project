@@ -19,6 +19,9 @@ from .config import config
 # 全局单例
 _recognizer = None
 
+# 内存人脸特征向量库
+_face_db = None
+
 
 def get_recognizer():
     """获取或初始化人脸识别器（单例，使用全局配置）"""
@@ -27,6 +30,57 @@ def get_recognizer():
         _recognizer = FaceAnalysis(name=config.model_name, providers=config.providers)
         _recognizer.prepare(ctx_id=config.ctx_id, det_size=config.det_size)
     return _recognizer
+
+
+def get_face_db():
+    """
+    懒加载人脸特征库
+
+    Returns:
+        dict: {文件路径字符串: 人脸特征向量}
+    """
+    global _face_db
+    if _face_db is None:
+        reload_face_db()
+    return _face_db
+
+
+def reload_face_db():
+    """
+    清空并重新加载所有特征
+    遍历 config.images_base 目录下的人脸图片，提取特征进行缓存
+    """
+    global _face_db
+    _face_db = {}
+
+    db_path = Path(config.images_base)
+    if not db_path.exists():
+        print(f"人脸库目录不存在: {db_path}")
+        return
+
+    recognizer = get_recognizer()
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
+
+    for img_file in db_path.iterdir():
+        if img_file.suffix.lower() not in image_extensions:
+            continue
+
+        try:
+            db_img = cv2.imread(str(img_file))
+            if db_img is None:
+                continue
+
+            db_faces = recognizer.get(db_img)
+            if not db_faces:
+                continue
+
+            # 取第一个人脸特征
+            _face_db[str(img_file)] = db_faces[0].embedding
+        except Exception as e:
+            print(f"提取图片 {img_file} 特征失败：{e}")
+            continue
+
+    print(f"人脸特征库加载完成，共 {len(_face_db)} 条记录")
 
 
 def detection_face_exits(img_path):
@@ -235,47 +289,33 @@ def face_search(img, db_path=None, top_n=3):
         if not db_path.exists():
             return {"searched_similar_pictures": [], "has_similar_picture": 0}
 
+        from numpy.linalg import norm
+
+        db = get_face_db()
         results = []
-        image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
 
-        for img_file in db_path.iterdir():
-            if img_file.suffix.lower() not in image_extensions:
-                continue
-
+        for img_file_str, db_embedding in db.items():
             try:
-                db_img = cv2.imread(str(img_file))
-                if db_img is None:
-                    continue
-
-                db_faces = recognizer.get(db_img)
-                if not db_faces:
-                    continue
-
-                db_embedding = db_faces[0].embedding
-
-                from numpy.linalg import norm
-
                 similarity = np.dot(query_embedding, db_embedding) / (
                     norm(query_embedding) * norm(db_embedding)
                 )
-
                 results.append(
                     {
-                        "picture": str(img_file),
+                        "picture": img_file_str,
                         "confidence": float(similarity),
                         "distance": 1.0 - float(similarity),
                     }
                 )
-
             except Exception as e:
-                print(f"处理图片 {img_file} 失败：{e}")
+                print(f"计算相似度失败 {img_file_str}：{e}")
                 continue
 
         results.sort(key=lambda x: x["confidence"], reverse=True)
         top_results = results[:top_n]
+        threshold = config.similarity_threshold
         has_similar = (
             1
-            if len(top_results) > 0 and top_results[0]["confidence"] > 0.5
+            if len(top_results) > 0 and top_results[0]["confidence"] >= threshold
             else 0
         )
 
@@ -287,4 +327,3 @@ def face_search(img, db_path=None, top_n=3):
     except Exception as e:
         print(f"人脸搜索失败：{e}")
         return {"searched_similar_pictures": [], "has_similar_picture": 0}
-
