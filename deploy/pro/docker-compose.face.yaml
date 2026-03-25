@@ -13,6 +13,7 @@ services:
     volumes:
       - ../../models:/app/models
       - ../../data:/app/data
+      - /data/dataset:/data/dataset
       - insightface-models:/root/.insightface/models
     env_file:
       - .env
