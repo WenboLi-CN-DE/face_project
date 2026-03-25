@@ -7,6 +7,9 @@
     face_search      — 1:N 人脸搜索
 """
 
+import logging
+import time
+
 import cv2
 import numpy as np
 import insightface
@@ -14,6 +17,8 @@ from insightface.app import FaceAnalysis
 from pathlib import Path
 
 from .config import config
+
+logger = logging.getLogger(__name__)
 
 
 # 全局单例
@@ -55,11 +60,12 @@ def reload_face_db():
 
     db_path = Path(config.images_base)
     if not db_path.exists():
-        print(f"人脸库目录不存在: {db_path}")
+        logger.warning("人脸库目录不存在: %s", db_path)
         return
 
     recognizer = get_recognizer()
     image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
+    logger.info("开始加载人脸特征库: %s", db_path)
 
     for img_file in db_path.iterdir():
         if img_file.suffix.lower() not in image_extensions:
@@ -68,19 +74,21 @@ def reload_face_db():
         try:
             db_img = cv2.imread(str(img_file))
             if db_img is None:
+                logger.warning("无法读取图片，跳过: %s", img_file)
                 continue
 
             db_faces = recognizer.get(db_img)
             if not db_faces:
+                logger.warning("未检测到人脸，跳过: %s", img_file)
                 continue
 
             # 取第一个人脸特征
             _face_db[str(img_file)] = db_faces[0].embedding
         except Exception as e:
-            print(f"提取图片 {img_file} 特征失败：{e}")
+            logger.error("提取图片 %s 特征失败：%s", img_file, e)
             continue
 
-    print(f"人脸特征库加载完成，共 {len(_face_db)} 条记录")
+    logger.info("人脸特征库加载完成，共 %d 条记录", len(_face_db))
 
 
 def detection_face_exits(img_path):
@@ -112,7 +120,7 @@ def detection_face_exits(img_path):
         return False, 0.0
 
     except Exception as e:
-        print(f"人脸检测失败：{e}")
+        logger.error("人脸检测失败：%s", e)
         return False, 0.0
 
 
@@ -154,7 +162,7 @@ def verify_face(img1, img2, threshold=None):
         return verified, float(similarity)
 
     except Exception as e:
-        print(f"人脸比对失败：{e}")
+        logger.error("人脸比对失败：%s", e)
         return False, 0.0
 
 
@@ -253,7 +261,7 @@ def face_detection(img):
         return {"is_face_exist": 0, "face_num": 0, "faces_detected": []}
 
     except Exception as e:
-        print(f"人脸检测失败：{e}")
+        logger.error("人脸检测失败：%s", e)
         return {"is_face_exist": 0, "face_num": 0, "faces_detected": []}
 
 
@@ -272,26 +280,36 @@ def face_search(img, db_path=None, top_n=3):
     if db_path is None:
         db_path = config.images_base
 
+    t_start = time.time()
+
     try:
         if isinstance(img, str):
             img = cv2.imread(img)
             if img is None:
+                logger.warning("face_search: 无法读取输入图片")
                 return {"searched_similar_pictures": [], "has_similar_picture": 0}
 
         recognizer = get_recognizer()
         faces = recognizer.get(img)
         if not faces:
+            logger.info("face_search: 输入图片未检测到人脸")
             return {"searched_similar_pictures": [], "has_similar_picture": 0}
 
+        logger.info(
+            "face_search: 输入图片检测到 %d 张人脸，使用第 1 张进行搜索",
+            len(faces),
+        )
         query_embedding = faces[0].embedding
         db_path = Path(db_path)
 
         if not db_path.exists():
+            logger.warning("face_search: 底库路径不存在: %s", db_path)
             return {"searched_similar_pictures": [], "has_similar_picture": 0}
 
         from numpy.linalg import norm
 
         db = get_face_db()
+        logger.info("face_search: 底库共 %d 条记录，开始比对", len(db))
         results = []
 
         for img_file_str, db_embedding in db.items():
@@ -307,7 +325,7 @@ def face_search(img, db_path=None, top_n=3):
                     }
                 )
             except Exception as e:
-                print(f"计算相似度失败 {img_file_str}：{e}")
+                logger.error("face_search: 计算相似度失败 %s：%s", img_file_str, e)
                 continue
 
         results.sort(key=lambda x: x["confidence"], reverse=True)
@@ -319,11 +337,30 @@ def face_search(img, db_path=None, top_n=3):
             else 0
         )
 
+        elapsed = time.time() - t_start
+        if top_results:
+            top_summary = ", ".join(
+                f"{Path(r['picture']).name}({r['confidence']:.4f})" for r in top_results
+            )
+        else:
+            top_summary = "无匹配"
+        logger.info(
+            "face_search: 完成 | 耗时=%.3fs | 比对=%d条 | "
+            "top_%d=[%s] | 阈值=%.2f | has_similar=%d",
+            elapsed,
+            len(db),
+            top_n,
+            top_summary,
+            threshold,
+            has_similar,
+        )
+
         return {
             "searched_similar_pictures": top_results,
             "has_similar_picture": has_similar,
         }
 
     except Exception as e:
-        print(f"人脸搜索失败：{e}")
+        elapsed = time.time() - t_start
+        logger.error("face_search: 搜索失败 | 耗时=%.3fs | 错误=%s", elapsed, e)
         return {"searched_similar_pictures": [], "has_similar_picture": 0}

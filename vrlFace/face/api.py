@@ -109,8 +109,24 @@ async def vrl_face_search(picture: UploadFile = File(...)):
     """
     _check_content_type(picture)
     try:
-        image = _read_image(picture, await picture.read())
+        data = await picture.read()
+        logger.info(
+            "vrlFaceSearch 收到请求 | 文件名=%s | 大小=%.1fKB | 类型=%s",
+            picture.filename,
+            len(data) / 1024,
+            picture.content_type,
+        )
+        image = _read_image(picture, data)
         result = face_search(image, db_path=config.images_base, top_n=3)
+        search = result.get("searched_similar_pictures", [])
+        has_similar = result.get("has_similar_picture", 0)
+        logger.info(
+            "vrlFaceSearch 返回结果 | 文件名=%s | 匹配数=%d | has_similar=%d | top1=%s",
+            picture.filename,
+            len(search),
+            has_similar,
+            f"{search[0]['confidence']:.4f}" if search else "N/A",
+        )
         return {
             "code": 0,
             "msg": "face search successful",
