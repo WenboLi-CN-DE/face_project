@@ -16,7 +16,7 @@ import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from PIL import Image
 
-from .recognizer import face_detection, gen_verify_res, face_search
+from .recognizer import face_detection, gen_verify_res, face_search, reload_face_db
 from .config import config
 from .id_preprocess import preprocess_id_photo
 
@@ -122,6 +122,19 @@ async def vrl_face_search(picture: UploadFile = File(...)):
     except Exception as e:
         logger.error("vrlFaceSearch error: %s", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"识别过程出错：{str(e)}")
+
+
+@router.post("/vrlFaceSearch/reload")
+async def vrl_face_search_reload():
+    try:
+        reload_face_db()
+        from .recognizer import _face_db
+
+        count = len(_face_db) if _face_db is not None else 0
+        return {"code": 0, "msg": "face db reloaded successfully", "count": count}
+    except Exception as e:
+        logger.error("vrlFaceSearch reload error: %s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"重新加载人脸库出错：{str(e)}")
 
 
 @router.post("/vrlFaceIdComparison")
