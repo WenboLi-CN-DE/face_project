@@ -160,9 +160,17 @@ class BenchmarkCalibrator:
             return False
 
         # 添加到基准帧集合
+        # 将 NormalizedLandmark 列表转换为数值数组（提取 x, y 坐标）
+        if hasattr(landmarks[0], "x") and hasattr(landmarks[0], "y"):
+            # NormalizedLandmark 列表，提取坐标
+            landmarks_array = np.array([[lm.x, lm.y] for lm in landmarks])
+        else:
+            # 已经是数组
+            landmarks_array = np.array(landmarks)
+
         benchmark_frame = BenchmarkFrame(
             embedding=embedding.copy(),
-            landmarks=landmarks.copy(),
+            landmarks=landmarks_array,
             quality_score=quality_score,
             face_bbox=face_bbox,
             pitch=pitch,
@@ -215,7 +223,7 @@ class BenchmarkCalibrator:
     def verify_frame(
         self,
         embedding: np.ndarray,
-        landmarks: np.ndarray,
+        landmarks,  # NormalizedLandmark 列表或 np.ndarray
         pitch: float,
         yaw: float,
     ) -> Dict[str, Any]:
@@ -225,6 +233,16 @@ class BenchmarkCalibrator:
         Returns:
             验证结果字典
         """
+        # 将 NormalizedLandmark 列表转换为数值数组
+        if (
+            hasattr(landmarks, "__len__")
+            and len(landmarks) > 0
+            and hasattr(landmarks[0], "x")
+        ):
+            landmarks = np.array([[lm.x, lm.y] for lm in landmarks])
+        else:
+            landmarks = np.array(landmarks)
+
         if self.is_collecting:
             return {
                 "verified": False,

@@ -645,12 +645,17 @@ class MediaPipeLivenessDetector:
 
         quality_score = self._calculate_quality_score(frame, landmarks)
 
+        # 计算宽高比（用于 EAR/MAR 计算）
+        h_img, w_img = frame.shape[:2]
+        aspect_ratio = w_img / h_img if h_img > 0 else 1.0
+
         return {
             "landmarks": landmarks,
             "transform_matrix": transform_matrix,
             "quality_score": quality_score,
             "frame_shape": frame.shape,
             "fps": self.fps,
+            "aspect_ratio": aspect_ratio,
         }
 
     def detect_liveness(self, frame: np.ndarray, skip: bool = False) -> Dict[str, Any]:
