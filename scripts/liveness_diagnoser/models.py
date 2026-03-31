@@ -55,6 +55,7 @@ class DiagnosisResult:
 
     # 视频信息
     video_info: VideoInfo
+    task_id: str | None = None  # 可选的任务 ID
 
     # 统计信息
     total_frames: int = 0
@@ -83,6 +84,16 @@ class DiagnosisResult:
     # 总体判定
     overall_passed: bool = False
     overall_message: str = ""
+
+    # 分析时间
+    analysis_time: float = 0.0  # 分析耗时（秒）
+
+    # 配置信息（用于报告）
+    threshold: float = 0.0  # 活体阈值
+    ear_threshold: float = 0.20  # 眨眼阈值
+    mar_threshold: float = 0.55  # 张嘴阈值
+    yaw_threshold: float = 15.0  # 摇头阈值
+    pitch_threshold: float = 15.0  # 点头阈值
 
 
 @dataclass

@@ -358,6 +358,9 @@ class VideoAnalyzer:
         if actions is None:
             actions = ["blink", "mouth_open", "nod", "shake_head"]
 
+        # 记录开始时间
+        start_time = time.time()
+
         # 打开视频
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -474,8 +477,20 @@ class VideoAnalyzer:
                 overall_message=f"最佳运动分数：{best_score:.3f} (阈值：{self.config.threshold})",
             )
 
+            # 计算分析时间
+            analysis_time = time.time() - start_time
+
             # 生成建议
             result.suggestions = self._generate_suggestions(result)
+
+            # 填充新增字段
+            result.task_id = task_id
+            result.analysis_time = analysis_time
+            result.threshold = self.config.threshold
+            result.ear_threshold = self.config.ear_threshold
+            result.mar_threshold = self.config.mar_threshold
+            result.yaw_threshold = self.config.yaw_threshold
+            result.pitch_threshold = self.config.pitch_threshold
 
             return result
 
