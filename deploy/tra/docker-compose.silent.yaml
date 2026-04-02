@@ -10,6 +10,7 @@ services:
     restart: unless-stopped
     volumes:
       - /data/videos:/data/videos
+      - /data/images:/data/images
     env_file:
       - .env
     logging:

@@ -10,6 +10,7 @@ services:
     restart: unless-stopped
     volumes:
       - /data/videos:/data/videos
+      - /data/images:/data/images
       - /opt/test:/opt/test
       - /opt/test2026:/opt/test2026
     env_file:

@@ -10,6 +10,7 @@ services:
     volumes:
       - ../..:/app
       - /data/videos:/data/videos
+      - /data/images:/data/images
     env_file:
       - .env
     mem_limit: "4G"
